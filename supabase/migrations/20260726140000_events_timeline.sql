@@ -106,10 +106,20 @@ create index events_kind_idx on events (condition_id, kind);
 create index events_visit_id_idx on events (visit_id);
 create index events_check_in_id_idx on events (check_in_id);
 
--- An event either happened or is due; one with neither is a row nobody can
--- place on a timeline, and silently keeping it would make the chronology lie
--- by omission.
-alter table events add constraint events_has_a_time
-  check (occurred_at is not null or due_at is not null);
+-- An event needs a label to be worth storing, but NOT a date. "They stopped
+-- taking it and could not say when" is a real finding, and the patient saying
+-- so is exactly the honesty the extraction schema asks for — occurred_at null
+-- with the patient's words kept. Requiring a date here would force the choice
+-- between dropping the event and inventing a timestamp, and inventing one is
+-- the failure this whole table exists to prevent.
+--
+-- What must hold instead: a scheduled event is one that has not happened, so
+-- it cannot also carry an occurrence, and a fulfilment link only means
+-- something on a row that was scheduled.
+alter table events add constraint events_has_a_label
+  check (length(trim(label)) > 0);
+
+alter table events add constraint events_scheduled_or_occurred
+  check (not (source = 'scheduled' and occurred_at is not null));
 
 alter table events enable row level security;
