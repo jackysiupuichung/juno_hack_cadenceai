@@ -1,9 +1,14 @@
 """Tests for conversation tracking and speaker role inference."""
 
+import json
+from pathlib import Path
+
 from django.test import TestCase
 
 from .roles import DOCTOR, PATIENT, UNKNOWN, infer_roles
 from .transcribe import Transcript, Utterance, _group_into_utterances
+
+FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "demo_consultation.json"
 
 
 def _turns(*pairs) -> list[Utterance]:
@@ -183,3 +188,65 @@ class TranscriptTests(TestCase):
             language_code="eng",
         )
         self.assertIsNone(transcript.duration)
+
+
+class DemoFixtureTests(TestCase):
+    """Guards the committed demo transcript the later stages develop against.
+
+    Re-running transcription costs money and minutes, so downstream work reads
+    this file. If its shape drifts, those stages break silently — catch it here.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.data = json.loads(FIXTURE.read_text())
+
+    def test_fixture_exists_and_is_valid_json(self):
+        self.assertTrue(FIXTURE.is_file(), f"missing fixture: {FIXTURE}")
+        self.assertIsInstance(self.data, dict)
+
+    def test_has_the_keys_downstream_stages_read(self):
+        for key in (
+            "source_audio",
+            "language_code",
+            "duration_seconds",
+            "role_confidence",
+            "speakers",
+            "dialogue",
+            "utterances",
+            "text",
+        ):
+            self.assertIn(key, self.data)
+
+    def test_both_roles_were_resolved(self):
+        roles = {s["role"] for s in self.data["speakers"]}
+        self.assertEqual(roles, {DOCTOR, PATIENT})
+        self.assertEqual(self.data["role_confidence"], "high")
+
+    def test_every_turn_has_a_role_and_timestamps(self):
+        for i, turn in enumerate(self.data["utterances"]):
+            self.assertIn(turn["role"], (DOCTOR, PATIENT), f"turn {i}")
+            self.assertIsNotNone(turn["start"], f"turn {i}")
+            self.assertIsNotNone(turn["end"], f"turn {i}")
+            self.assertGreaterEqual(turn["end"], turn["start"], f"turn {i}")
+
+    def test_turns_are_in_chronological_order(self):
+        starts = [t["start"] for t in self.data["utterances"]]
+        self.assertEqual(starts, sorted(starts))
+
+    def test_dialogue_has_one_line_per_turn(self):
+        self.assertEqual(
+            len(self.data["dialogue"].splitlines()),
+            len(self.data["utterances"]),
+        )
+
+    def test_dialogue_is_role_labelled_not_raw(self):
+        self.assertIn(f"{DOCTOR}:", self.data["dialogue"])
+        self.assertIn(f"{PATIENT}:", self.data["dialogue"])
+        self.assertNotIn("speaker_0:", self.data["dialogue"])
+
+    def test_the_consultation_is_substantive_enough_to_summarise(self):
+        """A near-empty transcript would make the summary stage look broken."""
+        self.assertGreaterEqual(len(self.data["utterances"]), 10)
+        self.assertGreater(self.data["duration_seconds"], 60)
