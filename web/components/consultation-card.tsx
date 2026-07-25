@@ -1,9 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { CalendarDays, ChevronRight, MapPin, Stethoscope, Link2Off } from "lucide-react"
+import {
+  CalendarDays,
+  CalendarClock,
+  ChevronRight,
+  MapPin,
+  Stethoscope,
+  Link2Off,
+} from "lucide-react"
 import type { Appointment, AppData } from "@/lib/types"
-import { conditionName } from "@/lib/store"
+import { conditionName, isUpcoming, untilLabel } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 
 export function ConsultationCard({
@@ -16,9 +23,14 @@ export function ConsultationCard({
   showCondition?: boolean
 }) {
   const linked = conditionName(data, appointment.conditionId)
-  const diagnosis =
-    appointment.summary?.doctor_diagnosis?.trim() ||
-    (appointment.transcript ? "Summary not generated yet" : "Not processed yet")
+  const upcoming = isUpcoming(appointment)
+  // "Not processed yet" describes a failure to summarise. For an appointment
+  // that has not happened there is nothing to summarise, and saying so where
+  // the diagnosis goes reads as something gone wrong.
+  const diagnosis = upcoming
+    ? appointment.doctorName || "Upcoming appointment"
+    : appointment.summary?.doctor_diagnosis?.trim() ||
+      (appointment.transcript ? "Summary not generated yet" : "Not processed yet")
 
   return (
     <Link
@@ -31,6 +43,12 @@ export function ConsultationCard({
             <CalendarDays className="size-3.5" />
             {formatDate(appointment.date)}
           </span>
+          {upcoming && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
+              <CalendarClock className="size-3" />
+              {untilLabel(appointment.date)}
+            </span>
+          )}
           <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-medium text-secondary-foreground">
             <MapPin className="size-3" />
             {appointment.careSetting}

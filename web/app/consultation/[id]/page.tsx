@@ -18,7 +18,7 @@ import {
   User,
   FileText,
 } from "lucide-react"
-import { useApp } from "@/lib/store"
+import { isUpcoming, untilLabel, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { SummaryCard } from "@/components/summary-card"
@@ -146,8 +146,25 @@ export default function ConsultationPage() {
         </section>
 
         {!s ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
-            No summary was generated for this consultation.
+          <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-center">
+            {isUpcoming(appointment) ? (
+              // Not a missing summary — an appointment that has not happened.
+              // Saying "no summary was generated" here would report a failure
+              // for a visit that is still in the diary.
+              <>
+                <p className="text-sm font-medium text-foreground">
+                  {untilLabel(appointment.date)} · {formatDate(appointment.date)}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground text-pretty">
+                  This appointment hasn&apos;t happened yet. Record it on the day
+                  and the summary will appear here.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No summary was generated for this consultation.
+              </p>
+            )}
           </div>
         ) : (
           <>

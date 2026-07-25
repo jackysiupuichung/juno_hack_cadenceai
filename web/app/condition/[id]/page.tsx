@@ -11,10 +11,11 @@ import {
   Trash2,
   ChevronRight,
   CalendarDays,
+  CalendarClock,
   MapPin,
   FileText,
 } from "lucide-react"
-import { appointmentsForCondition, useApp } from "@/lib/store"
+import { appointmentsForCondition, isUpcoming, untilLabel, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { StatusBadge } from "@/components/status-badge"
@@ -51,7 +52,13 @@ export default function ConditionDetailPage() {
     )
   }
 
-  const appts = appointmentsForCondition(data, condition.id)
+  const allAppts = appointmentsForCondition(data, condition.id)
+  // An appointment ahead is not a consultation. Listing it among them puts a
+  // row reading "Not processed yet" above every visit that actually happened —
+  // which describes a failure, when the truth is that it has not happened.
+  const upcoming = allAppts.filter(isUpcoming)
+  const appts = allAppts.filter((a) => !isUpcoming(a))
+  const nextAppt = upcoming[upcoming.length - 1] // soonest, since sorted newest-first
   const isCompleted = condition.status === "completed"
 
   return (
@@ -69,6 +76,35 @@ export default function ConditionDetailPage() {
           </div>
         )}
 
+        {/* The appointment ahead, and directly beneath it the brief to carry
+            into it. Together they are the product's whole claim: the interval
+            has an end, and the patient walks into it with an account of it
+            rather than from a cold start. */}
+        {nextAppt && (
+          <section className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+                <CalendarClock className="size-3.5" />
+                {untilLabel(nextAppt.date)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(nextAppt.date)}
+              </span>
+            </div>
+            {nextAppt.doctorName && (
+              <p className="mt-2 text-sm font-medium text-foreground">
+                {nextAppt.doctorName}
+              </p>
+            )}
+            {nextAppt.organisationName && (
+              <p className="mt-0.5 inline-flex items-start gap-1 text-xs text-muted-foreground">
+                <MapPin className="mt-0.5 size-3 shrink-0" />
+                <span>{nextAppt.organisationName}</span>
+              </p>
+            )}
+          </section>
+        )}
+
         {/* The hero. Placed above the consultation list rather than below it
             because the brief is what the patient came for on the day of an
             appointment, and burying it under a scroll makes it the thing they
@@ -81,7 +117,7 @@ export default function ConditionDetailPage() {
             render={<Link href={`/condition/${condition.id}/brief`} />}
           >
             <FileText className="size-4" />
-            Next-visit brief
+            {nextAppt ? "Brief for this appointment" : "Next-visit brief"}
           </Button>
         )}
 
