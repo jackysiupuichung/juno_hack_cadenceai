@@ -1,0 +1,13 @@
+[project]
+name = "cadence-ai"
+version = "0.1.0"
+description = "The patient-side ambient scribe that closes the loop."
+requires-python = ">=3.12"
+dependencies = [
+    "django>=6.0.7",
+    "django-cors-headers>=4.9.0",
+    "djangorestframework>=3.17.1",
+    "elevenlabs>=2.59.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+]

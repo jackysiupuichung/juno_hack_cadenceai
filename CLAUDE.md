@@ -1,4 +1,4 @@
-# LOOP — Project Context for Claude Code
+# Cadence — Project Context for Claude Code
 
 > **Read this first. Single source of truth.** Technical spec, build order, and setup commands are being rebuilt from concrete implementation rather than upfront planning.
 
@@ -6,7 +6,7 @@
 
 ## What this is
 
-**LOOP** — the patient-side ambient scribe that closes the loop.
+**Cadence** — the patient-side ambient scribe that closes the loop.
 
 For **Juno × Anthropic "Build the Future of Healthcare"**, London, 25–26 July 2026 (36h).
 First prize = guaranteed YC interview. Brief rewards **shipped products people love**, not research.
@@ -24,7 +24,7 @@ First prize = guaranteed YC interview. Brief rewards **shipped products people l
 
 ## The one-sentence thesis
 
-> **A consultation is not an event — it's the start of an interval. Right now nothing spans the interval: the doctor forgets, the patient forgets, and the next visit starts cold. LOOP captures the visit for the patient, follows the plan through the weeks after, and walks the patient into the next visit with a brief that closes the loop.**
+> **A consultation is not an event — it's the start of an interval. Right now nothing spans the interval: the doctor forgets, the patient forgets, and the next visit starts cold. Cadence captures the visit for the patient, follows the plan through the weeks after, and walks the patient into the next visit with a brief that closes the loop.**
 
 ---
 
@@ -47,11 +47,11 @@ VISIT 2 ◄──THE NEXT-VISIT BRIEF──── "here's what we agreed · here
 
 ## Why this wins — the three-wall moat
 
-Incumbent scribes (Epic ships one; athenahealth gives one free; Commure, Nabla, Voa) are **doctor-side, note-producing, and frozen at "document, don't decide."** LOOP is the thing they structurally cannot build:
+Incumbent scribes (Epic ships one; athenahealth gives one free; Commure, Nabla, Voa) are **doctor-side, note-producing, and frozen at "document, don't decide."** Cadence is the thing they structurally cannot build:
 
 1. **Regulatory wall.** The moment a scribe *chases* follow-through ("you were due for that blood test — did you get it?") it's suggesting action → drifts toward Clinical Decision Support / medical-device territory. Epic's scribe is deliberately frozen at documentation because their health-system buyers won't take device liability. **Patient-side, this is self-management, not CDS.** Same action, different regulatory universe.
-2. **Business-model wall.** Incumbents sell to *providers* and optimize provider time. A loop that chases follow-through *creates* provider work. They won't build against their buyer. **LOOP serves a constituency (the patient) they don't sell to.**
-3. **Data-ownership wall.** EHR capture is locked to one system; it doesn't travel to a specialist, an ER, a new city. **LOOP's artifact is patient-owned and portable by construction** — it works across fragmented care precisely because it isn't in the EHR.
+2. **Business-model wall.** Incumbents sell to *providers* and optimize provider time. A loop that chases follow-through *creates* provider work. They won't build against their buyer. **Cadence serves a constituency (the patient) they don't sell to.**
+3. **Data-ownership wall.** EHR capture is locked to one system; it doesn't travel to a specialist, an ER, a new city. **Cadence's artifact is patient-owned and portable by construction** — it works across fragmented care precisely because it isn't in the EHR.
 
 Three independent walls. A YC partner will recognize all three.
 
@@ -71,14 +71,14 @@ Three independent walls. A YC partner will recognize all three.
 
 ## The vision (the slide that gestures at depth)
 
-As briefs accumulate, LOOP becomes a **longitudinal record** — which can later be re-read for *what was missed* (the evidence nobody asked about) and *what matters* (the patient's values). That's the alignment vision: the loop-closing record is the substrate a reasoning layer eventually sits on. **Ship the concrete loop; gesture at the profound record.** Don't build the reasoning layer in 36h — just show the record it produces and name where it goes.
+As briefs accumulate, Cadence becomes a **longitudinal record** — which can later be re-read for *what was missed* (the evidence nobody asked about) and *what matters* (the patient's values). That's the alignment vision: the loop-closing record is the substrate a reasoning layer eventually sits on. **Ship the concrete loop; gesture at the profound record.** Don't build the reasoning layer in 36h — just show the record it produces and name where it goes.
 
 ---
 
 ## Non-negotiable principles
 
 1. **Patient-owned, patient-carried.** The record belongs to the patient; the brief is something they bring. This is the moat AND the regulatory safety AND the portability. Never build toward EHR write-back.
-2. **Document and support — never diagnose or prescribe.** LOOP summarizes what was said, tracks what was agreed, and reports what happened. It does not decide. This keeps us the safe side of CDS. "The doctor said to reassess X in 6 weeks; here's how X went" is safe. "You should increase your dose" is not.
+2. **Document and support — never diagnose or prescribe.** Cadence summarizes what was said, tracks what was agreed, and reports what happened. It does not decide. This keeps us the safe side of CDS. "The doctor said to reassess X in 6 weeks; here's how X went" is safe. "You should increase your dose" is not.
 3. **The loop is made of real interval data.** The brief must visibly aggregate genuine follow-through, not fabricate. If the loop didn't run, the brief is just a scribe.
 4. **Voice for the follow-through.** Chronic patients tire easily and forget; a 30-second voice check-in beats a form. Fatigue is a core symptom of the wedge population.
 5. **Honest about what was and wasn't said.** If the patient didn't do the thing, the brief says so plainly — that's the useful signal for the doctor, not something to paper over.
