@@ -16,11 +16,6 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
-# gunicorn is a deployment concern rather than a project dependency, so it is
-# installed into the same venv instead of being added to pyproject.toml.
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install gunicorn
-
 
 # ---- runtime stage -----------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime

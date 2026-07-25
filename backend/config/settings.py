@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'capture',
+    'loop',
 ]
 
 MIDDLEWARE = [
@@ -149,3 +150,16 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Supabase is the actual data store (Postgres via PostgREST) — Django's own
+# ORM/DATABASES above is unused by the app beyond admin/sessions housekeeping.
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-5')
+
+# Hackathon MVP: one hardcoded patient/condition, no auth model at all.
+PATIENT_ID = os.environ.get('PATIENT_ID', '00000000-0000-0000-0000-000000000001')
