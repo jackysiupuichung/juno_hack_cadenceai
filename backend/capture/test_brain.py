@@ -810,3 +810,144 @@ class CrossVisitTests(SimpleTestCase):
             if "Left unfinished last time" in l
         )
         self.assertNotIn("Start levothyroxine", unfinished)
+
+
+class AttributedSpeechTests(SimpleTestCase):
+    """Reading a consultation back is not the same act as making a claim.
+
+    The visit chatbot's whole job is to hand the patient what was said at their
+    appointment. "Your thyroid levels are low" is a diagnosis Cadence must never
+    make; "your doctor said your thyroid levels are low" is a record of an
+    appointment, and returning that record is the entire point of a patient-side
+    scribe. The regexes cannot separate them, because the difference is the
+    attribution and not the claim — so the exemption is opt-in per caller, and
+    everything below fixes where its edges are.
+    """
+
+    ATTRIBUTED = [
+        "Your doctor said your thyroid levels are low, which is why they started you on levothyroxine.",
+        "The GP explained that your blood results came back showing an underactive thyroid.",
+        "They told you your thyroid levels were low at the time of the appointment.",
+        "Your consultant diagnosed hypothyroidism after your TSH results were high.",
+        "Your doctor said your TSH levels are looking better than last time.",
+        "Your doctor said your palpitations are caused by the tablets.",
+        "The nurse mentioned your blood test was due around week seven.",
+        "Your doctor said the treatment is working well so far.",
+    ]
+
+    ALWAYS_BLOCKED = [
+        "The doctor said you should increase your dose.",
+        "Your GP said you should book another blood test.",
+    ]
+
+    def test_a_clinical_statement_attributed_to_the_clinician_is_returnable(self):
+        """This is the record the patient came for; refusing it is the failure."""
+        for line in self.ATTRIBUTED:
+            self.assertEqual(
+                safety.check_utterance(line, allow_attributed=True), [], line
+            )
+
+    def test_the_same_sentences_are_still_blocked_without_the_flag(self):
+        """The check-in agent composes live speech, so it never gets the exemption.
+
+        Backwards compatibility is the guarantee: "the doctor said" from a mouth
+        that was not in the room is a claim about a conversation it did not
+        witness, not a quotation from a record.
+        """
+        for line in self.ATTRIBUTED:
+            self.assertNotEqual(safety.check_utterance(line), [], line)
+
+    def test_the_default_is_no_exemption_at_all(self):
+        """Anything written before the flag existed keeps the behaviour it had."""
+        line = self.ATTRIBUTED[0]
+        self.assertEqual(
+            safety.check_utterance(line), safety.check_utterance(line, allow_attributed=False)
+        )
+
+    def test_an_unattributed_test_result_is_blocked_even_with_the_flag_on(self):
+        """The exemption keys on attribution being present, not on who asked."""
+        self.assertEqual(
+            safety.check_utterance("Your thyroid levels are low.", allow_attributed=True),
+            ["interprets a test result"],
+        )
+
+    def test_an_unattributed_cause_is_blocked_even_with_the_flag_on(self):
+        self.assertEqual(
+            safety.check_utterance("That's because your dose is too high.", allow_attributed=True),
+            ["attributes a cause to a symptom"],
+        )
+
+    def test_a_chatbot_that_slips_into_its_own_voice_is_still_caught(self):
+        """The dangerous sentence is the one that drops the attribution."""
+        for line in SafetyEnvelopeTests.PROHIBITED:
+            self.assertNotEqual(
+                safety.check_utterance(line, allow_attributed=True), [], line
+            )
+
+    def test_an_attributed_dose_change_is_still_blocked(self):
+        """An invented instruction wearing the clinician's authority is worse.
+
+        If the doctor really did say to increase the dose, it is in the record
+        and the record is the safe place to read it from. If they did not, a
+        fabricated instruction that arrives with "your doctor said" attached is
+        far likelier to be acted on than a bare one — so attribution raises the
+        stakes here rather than lowering them.
+        """
+        self.assertEqual(
+            safety.check_utterance(
+                "The doctor said you should increase your dose.", allow_attributed=True
+            ),
+            ["suggests a change to the dose or medication"],
+        )
+
+    def test_an_attributed_test_recommendation_is_still_blocked(self):
+        """Same reasoning: an errand invented for the patient, signed by their GP."""
+        self.assertEqual(
+            safety.check_utterance(
+                "Your GP said you should book another blood test.", allow_attributed=True
+            ),
+            ["recommends a test or referral the doctor did not raise"],
+        )
+
+    def test_both_always_blocked_prohibitions_survive_every_attribution(self):
+        for line in self.ALWAYS_BLOCKED:
+            self.assertNotEqual(
+                safety.check_utterance(line, allow_attributed=True), [], line
+            )
+
+    def test_attribution_does_not_launder_a_line_that_breaks_two_rules(self):
+        """The exempt reason drops out; the always-blocked one has to remain."""
+        line = (
+            "Your doctor said your TSH levels are too high, so you should "
+            "increase your dose."
+        )
+        self.assertEqual(
+            safety.check_utterance(line, allow_attributed=True),
+            ["suggests a change to the dose or medication"],
+        )
+
+    def test_scrub_still_fails_closed_on_an_attributed_dose_change(self):
+        """`scrub` never opts in, so the safe default reaches every legacy caller."""
+        self.assertEqual(
+            safety.scrub("The doctor said you should increase your dose."),
+            safety.FALLBACK,
+        )
+
+    def test_empty_input_is_not_a_violation_with_the_flag_on_either(self):
+        self.assertEqual(safety.check_utterance("", allow_attributed=True), [])
+        self.assertEqual(safety.check_utterance("   ", allow_attributed=True), [])
+
+    def test_no_benign_line_becomes_a_violation_when_the_flag_is_on(self):
+        """Turning the exemption on may only ever remove reasons, never add them."""
+        for line in SafetyEnvelopeTests.BENIGN:
+            self.assertEqual(
+                safety.check_utterance(line, allow_attributed=True), [], line
+            )
+
+    def test_every_patient_facing_red_flag_line_still_passes_with_the_flag_on(self):
+        """The context's own warnings must survive both sides of the envelope."""
+        for flag in load_context()["red_flags"]:
+            line = f"{flag['patient_facing']} {flag['action']}"
+            self.assertEqual(
+                safety.check_utterance(line, allow_attributed=True), [], flag["id"]
+            )
