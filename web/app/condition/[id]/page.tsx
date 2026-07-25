@@ -12,6 +12,7 @@ import {
   ChevronRight,
   CalendarDays,
   MapPin,
+  FileText,
 } from "lucide-react"
 import { appointmentsForCondition, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
@@ -66,6 +67,22 @@ export default function ConditionDetailPage() {
           <div className="rounded-xl bg-muted px-4 py-3 text-sm text-muted-foreground">
             This condition is marked as completed and is read-only.
           </div>
+        )}
+
+        {/* The hero. Placed above the consultation list rather than below it
+            because the brief is what the patient came for on the day of an
+            appointment, and burying it under a scroll makes it the thing they
+            forget to bring. */}
+        {appts.length > 0 && (
+          <Button
+            size="lg"
+            className="w-full"
+            nativeButton={false}
+            render={<Link href={`/condition/${condition.id}/brief`} />}
+          >
+            <FileText className="size-4" />
+            Next-visit brief
+          </Button>
         )}
 
         <section className="flex flex-col gap-3">

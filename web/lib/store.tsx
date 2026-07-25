@@ -4,7 +4,6 @@ import * as React from "react"
 import type {
   AppData,
   Appointment,
-  CheckIn,
   Condition,
   Consent,
   Profile,
@@ -12,6 +11,7 @@ import type {
   Settings,
   Summary,
 } from "@/lib/types"
+import { type TimelineEvent, type Visit as ApiVisit, api } from "@/lib/api"
 
 const STORAGE_KEY = "consultation-companion:v1"
 
@@ -39,6 +39,69 @@ function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
+/**
+ * Replace the clinical half of the store with what Supabase holds.
+ *
+ * Ids come from the server, which is the point: `/api/summarise`, the plan,
+ * the check-ins and the brief all key off a condition id that only the backend
+ * can mint. A locally-generated id would summarise into a 404, and the two
+ * halves of the record would drift apart with no way to reconcile them.
+ */
+async function syncFromServer(
+  setData: React.Dispatch<React.SetStateAction<AppData>>,
+) {
+  try {
+    const conditions = await api.conditions()
+
+    // The timeline lists a condition's visits by id; the full summary for each
+    // is then fetched per visit. It is more requests than one bulk endpoint
+    // would be, and it uses only endpoints that already exist — worth it at
+    // this size, where a patient has a handful of visits, not hundreds.
+    const timelines = await Promise.all(
+      conditions.map((c) =>
+        api.timeline(c.id).catch(() => ({ events: [] as TimelineEvent[] })),
+      ),
+    )
+    const visitIds = timelines.flatMap((t) =>
+      (t.events ?? []).filter((e) => e.kind === "visit").map((e) => e.id),
+    )
+    const visits = await Promise.all(
+      visitIds.map((id) => api.visit(id).catch(() => null)),
+    )
+
+    setData((d) => ({
+      ...d,
+      conditions: conditions.map((c) => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+        createdAt: c.created_at,
+      })),
+      appointments: visits.filter(Boolean).map((v) => toAppointment(v!)),
+    }))
+  } catch {
+    // Offline, or the backend is not running. The cached record stands; every
+    // screen that needs the server surfaces its own error when it calls one.
+  }
+}
+
+/** A backend visit in the shape the existing screens already render. */
+function toAppointment(v: ApiVisit): Appointment {
+  return {
+    id: v.id,
+    conditionId: v.condition_id ?? null,
+    date: (v.date ?? "").slice(0, 10),
+    careSetting: (v.care_setting
+      ? v.care_setting.charAt(0).toUpperCase() + v.care_setting.slice(1)
+      : "GP") as Appointment["careSetting"],
+    organisationName: v.organisation || undefined,
+    doctorName: v.clinician_name || undefined,
+    transcript: v.transcript ?? "",
+    summary: (v.summary as Summary | null) ?? null,
+    createdAt: v.created_at ?? v.date ?? "",
+  }
+}
+
 interface AppContextValue {
   data: AppData
   hydrated: boolean
@@ -46,7 +109,7 @@ interface AppContextValue {
   saveConsent: (consent: Consent) => void
   withdrawConsent: () => void
   setReminders: (enabled: boolean) => void
-  addCondition: (name: string) => Condition
+  addCondition: (name: string) => Promise<Condition>
   completeCondition: (id: string) => void
   reopenCondition: (id: string) => void
   deleteCondition: (id: string) => void
@@ -56,7 +119,6 @@ interface AppContextValue {
   updateAppointment: (id: string, patch: Partial<Appointment>) => void
   linkAppointment: (id: string, conditionId: string | null) => void
   setSummary: (id: string, transcript: string, summary: Summary) => void
-  setCheckIn: (id: string, checkIn: CheckIn) => void
   deleteAppointment: (id: string) => void
   addReminder: (r: Omit<Reminder, "id">) => void
   deleteReminder: (id: string) => void
@@ -70,8 +132,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false)
 
   React.useEffect(() => {
-    setData(loadData())
+    const local = loadData()
+    setData(local)
     setHydrated(true)
+
+    // Conditions and visits are the backend's, not this device's. They are
+    // merged in after the local read rather than instead of it so the app
+    // renders immediately from cache and corrects itself a moment later —
+    // and so a backend that is down degrades to the last known record rather
+    // than to an empty one.
+    //
+    // Profile, consent and the reminders toggle stay local: they are settings
+    // on a device, and pushing them to a server would mean building the auth
+    // this product deliberately does not have.
+    void syncFromServer(setData)
   }, [])
 
   React.useEffect(() => {
@@ -92,42 +166,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       withdrawConsent: () => setData((d) => ({ ...d, consent: null })),
       setReminders: (enabled) =>
         setData((d) => ({ ...d, settings: { ...d.settings, remindersEnabled: enabled } })),
-      addCondition: (name) => {
+      // The id has to come from the server. Everything the interval is made
+      // of — the plan, the check-ins, the brief — is keyed to it, so a locally
+      // minted id would summarise into a 404 and strand the record.
+      addCondition: async (name) => {
+        const created = await api.createCondition(name.trim())
         const condition: Condition = {
-          id: uid(),
-          name: name.trim(),
-          status: "active",
-          createdAt: new Date().toISOString(),
+          id: created.id,
+          name: created.name,
+          status: created.status,
+          createdAt: created.created_at,
         }
         setData((d) => ({ ...d, conditions: [condition, ...d.conditions] }))
         return condition
       },
-      completeCondition: (id) =>
-        setData((d) => ({
-          ...d,
-          conditions: d.conditions.map((c) =>
-            c.id === id ? { ...c, status: "completed" } : c,
-          ),
-        })),
-      reopenCondition: (id) =>
-        setData((d) => ({
-          ...d,
-          conditions: d.conditions.map((c) =>
-            c.id === id ? { ...c, status: "active" } : c,
-          ),
-        })),
-      deleteCondition: (id) =>
-        setData((d) => ({
-          ...d,
-          conditions: d.conditions.filter((c) => c.id !== id),
-          // Keep the consultations themselves — just unlink them from the deleted condition.
-          appointments: d.appointments.map((a) =>
-            a.conditionId === id ? { ...a, conditionId: null } : a,
-          ),
-          reminders: d.reminders.map((r) =>
-            r.conditionId === id ? { ...r, conditionId: null } : r,
-          ),
-        })),
+      // Written through to the server, then applied locally so the screen
+      // responds immediately. A failed write leaves the local state alone
+      // rather than showing a change the record did not take.
+      completeCondition: (id) => {
+        void api.setConditionStatus(id, "completed").then(() =>
+          setData((d) => ({
+            ...d,
+            conditions: d.conditions.map((c) =>
+              c.id === id ? { ...c, status: "completed" } : c,
+            ),
+          })),
+        )
+      },
+      reopenCondition: (id) => {
+        void api.setConditionStatus(id, "active").then(() =>
+          setData((d) => ({
+            ...d,
+            conditions: d.conditions.map((c) =>
+              c.id === id ? { ...c, status: "active" } : c,
+            ),
+          })),
+        )
+      },
+      deleteCondition: (id) => {
+        // The backend cascades: the condition, its visits, commitments,
+        // check-ins and briefs all go. That is what a patient asking to erase
+        // a condition means, and leaving orphaned visits behind locally would
+        // misrepresent what was actually deleted.
+        void api.deleteCondition(id).then(() =>
+          setData((d) => ({
+            ...d,
+            conditions: d.conditions.filter((c) => c.id !== id),
+            appointments: d.appointments.filter((a) => a.conditionId !== id),
+            reminders: d.reminders.filter((r) => r.conditionId !== id),
+          })),
+        )
+      },
       addAppointment: (input) => {
         const appointment: Appointment = {
           ...input,
@@ -163,19 +252,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             a.id === id ? { ...a, transcript, summary } : a,
           ),
         })),
-      setCheckIn: (id, checkIn) =>
-        setData((d) => ({
-          ...d,
-          appointments: d.appointments.map((a) =>
-            a.id === id ? { ...a, checkIn } : a,
-          ),
-        })),
-      deleteAppointment: (id) =>
-        setData((d) => ({
-          ...d,
-          appointments: d.appointments.filter((a) => a.id !== id),
-          reminders: d.reminders.filter((r) => r.appointmentId !== id),
-        })),
+      // Per-appointment erasure, which the Settings screen offers as a right
+      // rather than a convenience — so it has to delete the server's copy,
+      // not just this device's view of it.
+      deleteAppointment: (id) => {
+        void api.deleteVisit(id).then(() =>
+          setData((d) => ({
+            ...d,
+            appointments: d.appointments.filter((a) => a.id !== id),
+            reminders: d.reminders.filter((r) => r.appointmentId !== id),
+          })),
+        )
+      },
       addReminder: (r) =>
         setData((d) => ({
           ...d,

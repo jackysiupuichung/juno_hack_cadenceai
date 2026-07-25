@@ -25,13 +25,27 @@ export function NewConditionDialog({
   const [open, setOpen] = React.useState(false)
   const [name, setName] = React.useState("")
 
-  function handleCreate() {
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  async function handleCreate() {
     const trimmed = name.trim()
-    if (!trimmed) return
-    const condition = addCondition(trimmed)
-    setName("")
-    setOpen(false)
-    onCreated?.(condition.id)
+    if (!trimmed || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      // The condition is created on the server, so this awaits a round trip
+      // rather than closing optimistically — the id it returns is what every
+      // later call for this interval is keyed to.
+      const condition = await addCondition(trimmed)
+      setName("")
+      setOpen(false)
+      onCreated?.(condition.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create it.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -66,11 +80,12 @@ export function NewConditionDialog({
             className="h-11"
           />
         </div>
+        {error && <p className="text-sm text-warning-foreground">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim()}>
+          <Button onClick={handleCreate} disabled={!name.trim() || saving}>
             Create
           </Button>
         </div>

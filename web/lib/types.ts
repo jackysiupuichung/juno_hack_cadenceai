@@ -46,14 +46,7 @@ export interface Summary {
   medications: Medication[]
   things_to_avoid: string[]
   lifestyle_advice: string[]
-  return_check: string
   future_plan: FuturePlan
-}
-
-export interface CheckIn {
-  feeling: "better" | "same" | "worse"
-  note?: string
-  date: string
 }
 
 export interface Appointment {
@@ -67,7 +60,6 @@ export interface Appointment {
   doctorName?: string
   transcript: string
   summary: Summary | null
-  checkIn?: CheckIn
   createdAt: string
 }
 
@@ -96,6 +88,5 @@ export const EMPTY_SUMMARY: Summary = {
   medications: [],
   things_to_avoid: [],
   lifestyle_advice: [],
-  return_check: "",
   future_plan: { follow_up_needed: false, date_or_timeframe: "", purpose: "" },
 }

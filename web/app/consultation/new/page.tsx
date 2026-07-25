@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Mic, Square, RefreshCw, Sparkles, AlertCircle, Loader2 } from "lucide-react"
 import { useApp } from "@/lib/store"
+import { ApiError, api } from "@/lib/api"
 import { useRecorder } from "@/lib/use-recorder"
 import { formatDuration, todayISO } from "@/lib/dates"
 import type { CareSetting } from "@/lib/types"
@@ -53,39 +54,41 @@ function NewConsultationInner() {
 
   async function handleProcess() {
     if (!recorder.blob) return
+    // The backend keys the whole interval — plan, check-ins, brief — off a
+    // condition, so a consultation cannot be summarised without one. Caught
+    // here rather than at the API so the patient is told what to pick, not
+    // shown a 400.
+    if (conditionId === NO_CONDITION) {
+      setError("Choose a condition first — the follow-up plan is built around it.")
+      return
+    }
     setError(null)
     try {
       setPhase("transcribing")
-      const form = new FormData()
-      form.append("audio", recorder.blob, "consultation.webm")
-      const tRes = await fetch("/api/transcribe", { method: "POST", body: form })
-      const tJson = await tRes.json()
-      if (!tRes.ok) throw new Error(tJson.error || "Transcription failed.")
-      const transcript: string = tJson.transcript || ""
+      const { transcript } = await api.transcribe(recorder.blob)
       if (!transcript.trim()) throw new Error("The recording was empty or unclear.")
 
+      // One call: Claude structures the summary, the commitments are
+      // extracted and persisted, and the caretaker plans the interval this
+      // visit just opened. What comes back is already a record, not a draft.
       setPhase("summarising")
-      const sRes = await fetch("/api/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript }),
-      })
-      const sJson = await sRes.json()
-      if (!sRes.ok) throw new Error(sJson.error || "Summarising failed.")
-
-      const appointment = addAppointment({
-        conditionId: conditionId === NO_CONDITION ? null : conditionId,
-        date,
-        careSetting,
-        organisationName: organisationName.trim() || undefined,
-        organisationAddress: organisationAddress.trim() || undefined,
-        doctorName: doctorName.trim() || undefined,
+      const visit = await api.summarise({
+        condition_id: conditionId,
         transcript,
+        date,
+        care_setting: careSetting.toLowerCase(),
+        clinician_name: doctorName.trim() || undefined,
+        organisation: organisationName.trim() || undefined,
+        organisation_address: organisationAddress.trim() || undefined,
       })
-      setSummary(appointment.id, transcript, sJson.summary)
-      router.replace(`/consultation/${appointment.id}`)
+
+      router.replace(`/consultation/${visit.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.")
+      setError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : "Something went wrong.",
+      )
       setPhase("form")
     }
   }

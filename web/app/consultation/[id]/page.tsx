@@ -41,12 +41,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 
-const FEELING_LABEL: Record<string, string> = {
-  better: "Feeling better",
-  same: "About the same",
-  worse: "Feeling worse",
-}
-
 const NO_CONDITION = "none"
 
 export default function ConsultationPage() {
@@ -238,12 +232,6 @@ export default function ConsultationPage() {
               </SummaryCard>
             )}
 
-            {s.return_check && (
-              <SummaryCard icon={<CalendarClock />} title="When to return">
-                <p>{s.return_check}</p>
-              </SummaryCard>
-            )}
-
             {showFollowUp && (
               <section className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -262,31 +250,22 @@ export default function ConsultationPage() {
           </>
         )}
 
+        {/* A check-in belongs to the interval, not to one appointment: it is
+            answered against everything still open, and several of them
+            accumulate across the weeks. So it hangs off the condition, and a
+            consultation with no condition has no interval to check in on. */}
         <section className="flex flex-col gap-2 border-t border-border pt-4">
-          {appointment.checkIn ? (
-            <div className="flex items-center justify-between rounded-xl bg-accent/60 px-4 py-3 text-sm">
-              <span className="inline-flex items-center gap-2 font-medium text-accent-foreground">
-                <Smile className="size-4" />
-                {FEELING_LABEL[appointment.checkIn.feeling]}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={`/consultation/${appointment.id}/check-in`} />}
-              >
-                Update
-              </Button>
-            </div>
-          ) : (
+          {appointment.conditionId && (
             <Button
               variant="outline"
               size="lg"
               nativeButton={false}
-              render={<Link href={`/consultation/${appointment.id}/check-in`} />}
+              render={
+                <Link href={`/condition/${appointment.conditionId}/check-in`} />
+              }
             >
               <Smile className="size-4" />
-              How are you feeling since this visit?
+              How has it gone since this visit?
             </Button>
           )}
 
