@@ -3,8 +3,9 @@
 #
 #   docker compose up --build
 #
-# There is no Postgres service here on purpose: Supabase is hosted, and the
-# local sqlite database is only scaffolding for the demo.
+# There is no Postgres service here: Supabase is hosted, and is the real data
+# store (see backend/loop/). The local sqlite database is scaffolding for
+# Django admin/sessions only.
 
 services:
   backend:
@@ -25,8 +26,6 @@ services:
       - ./backend:/app/backend
       - ./schemas:/app/schemas
       - ./fixtures:/app/fixtures
-      # The database survives `docker compose down` — losing recorded visits
-      # mid-demo would cost more than the disk does.
       - cadence-db:/data
     command: python manage.py runserver 0.0.0.0:8000
 

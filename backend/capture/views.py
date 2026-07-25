@@ -8,15 +8,11 @@ from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from .summarise import SummariseError, summarise_transcript
 from .transcribe import transcribe_audio
 
 # Anything larger is almost certainly not a consultation recording, and we'd
 # rather reject it than pay to transcribe it.
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-
-# Long enough for a lengthy consultation, short enough to reject junk.
-MAX_TRANSCRIPT_CHARS = 200_000
 
 
 @api_view(["POST"])
@@ -91,47 +87,6 @@ def transcribe(request):
         )
 
     return _transcript_response(transcript)
-
-
-@api_view(["POST"])
-def summarise(request):
-    """Summarise a consultation transcript and extract its commitments.
-
-    Expects JSON with a `transcript` string — role-labelled dialogue as
-    produced by /api/transcribe, or pasted text (the demo's fallback path).
-
-    Returns the visit summary conforming to visit_summary.schema.json.
-    """
-    transcript = request.data.get("transcript")
-
-    if not isinstance(transcript, str) or not transcript.strip():
-        return Response(
-            {"error": "Provide a non-empty 'transcript' string."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if len(transcript) > MAX_TRANSCRIPT_CHARS:
-        return Response(
-            {
-                "error": (
-                    f"Transcript is too long ({len(transcript)} characters). "
-                    f"Limit is {MAX_TRANSCRIPT_CHARS}."
-                )
-            },
-            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-        )
-
-    try:
-        summary = summarise_transcript(transcript)
-    except SummariseError as exc:
-        # A missing key is a deployment problem; everything else is upstream.
-        if "ANTHROPIC_API_KEY" in str(exc) or "CODEX_API_KEY" in str(exc):
-            return Response(
-                {"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-        return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
-
-    return Response({"summary": summary.data, "usage": summary.usage})
 
 
 def _transcript_response(transcript) -> Response:
