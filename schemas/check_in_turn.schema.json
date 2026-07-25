@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/check_in_turn.schema.json",
+  "title": "Check-in turn",
+  "description": "One turn of a voice check-in. The agent reasons over the full disease context and the interval facts, decides what to ask next, and records what the patient just said. Unlike check_in.schema.json — which is the settled record of a whole call — this constrains a single exchange, and carries the agent's own reasoning so a call can be audited question by question.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reasoning",
+    "say",
+    "should_end",
+    "outcomes",
+    "symptom_mentions",
+    "questions_for_doctor",
+    "unprompted_reports"
+  ],
+  "properties": {
+    "reasoning": {
+      "type": "string",
+      "description": "Why this question, now — one sentence. The agent chooses its own line of questioning, so this is the audit trail that replaces a fixed schedule: it must be possible to ask afterwards why any question was asked."
+    },
+    "say": {
+      "type": "string",
+      "description": "What the agent says aloud this turn. One question, plus at most a brief acknowledgement of what was just said."
+    },
+    "covers": {
+      "type": "array",
+      "description": "Ids from the disease context this question is pursuing — check_in_probes, red_flags, trajectory or monitoring ids — or commitment ids. Empty when the agent is following a thread of its own.",
+      "items": { "type": "string" }
+    },
+    "should_end": {
+      "type": "boolean",
+      "description": "True when the agent judges the call complete, or the patient asks to stop. The caller also enforces a hard turn cap; this is the agent's own judgement, not the only stopping condition."
+    },
+    "outcomes": {
+      "type": "array",
+      "description": "Commitments the patient addressed in the utterance just heard. Omit commitments not discussed — silence is not an answer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commitment_id", "status", "patient_words", "note"],
+        "properties": {
+          "commitment_id": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["done", "not_done", "partial", "changed", "unknown"]
+          },
+          "patient_words": {
+            "type": "string",
+            "description": "Quoted or closely paraphrased. Their words, never a summary of them."
+          },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "symptom_mentions": {
+      "type": "array",
+      "description": "Symptoms the patient described, mapped onto the disease context's own vocabulary. The watch_for value is constrained at call time to the union of the context's watch_for phrases, so a symptom the context does not name cannot enter the record — which is what makes the cluster count downstream trustworthy.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["watch_for", "flag_id", "patient_words"],
+        "properties": {
+          "watch_for": {
+            "type": "string",
+            "description": "The canonical phrase from the context. Constrained to an enum at call time."
+          },
+          "flag_id": {
+            "type": "string",
+            "description": "The red_flag id this phrase belongs to."
+          },
+          "patient_words": { "type": "string" }
+        }
+      }
+    },
+    "questions_for_doctor": {
+      "type": "array",
+      "description": "Things the patient asked that the agent must not answer. Carried into the brief.",
+      "items": { "type": "string" }
+    },
+    "unprompted_reports": {
+      "type": "array",
+      "description": "Anything the patient reported that does not map onto the context's vocabulary, in their own words. A wrong match is worse than no match, so unmappable material belongs here rather than forced into symptom_mentions.",
+      "items": { "type": "string" }
+    }
+  }
+}

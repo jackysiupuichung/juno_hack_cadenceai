@@ -2,10 +2,18 @@
 Claude calls for the loop app, and the three system prompts, verbatim from
 product_doc.md. Every call returns JSON only; parse defensively and surface
 the raw text on failure so a bad response is debuggable, not silent.
+
+Where a schema exists in schemas/, it is passed to the API so the provider
+enforces the shape rather than the prompt merely asking for it. A summary that
+silently loses `commitments` is worse than one that fails loudly: the interval
+is built from those commitments, and an empty list looks like a patient who
+agreed to nothing rather than like a bug.
 """
 
 import json
 import logging
+from functools import lru_cache
+from pathlib import Path
 
 import anthropic
 import openai
@@ -13,11 +21,23 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_DIR = Path(__file__).resolve().parents[2] / "schemas"
+
 
 class LLMJSONError(Exception):
     def __init__(self, message, raw_text):
         super().__init__(message)
         self.raw_text = raw_text
+
+
+@lru_cache(maxsize=8)
+def load_schema(name: str) -> dict:
+    """A schema from schemas/, stripped of the `$` keys the APIs reject."""
+    path = SCHEMA_DIR / f"{name}.schema.json"
+    if not path.is_file():
+        raise LLMJSONError(f"Missing schema at {path}", "")
+    body = json.loads(path.read_text())
+    return {k: v for k, v in body.items() if not k.startswith("$")}
 
 
 def _client() -> anthropic.Anthropic:
@@ -31,11 +51,19 @@ def _codex_client() -> openai.OpenAI:
     )
 
 
-def _call_codex(system_prompt: str, user_content: str) -> str:
+def _call_codex(system_prompt: str, user_content: str, schema: dict | None) -> str:
     """Same contract as the Anthropic call, in the Chat Completions shape."""
+    if schema is None:
+        response_format = {"type": "json_object"}
+    else:
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema, "strict": False},
+        }
+
     response = _codex_client().chat.completions.create(
         model=settings.CODEX_MODEL,
-        response_format={"type": "json_object"},
+        response_format=response_format,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -44,23 +72,40 @@ def _call_codex(system_prompt: str, user_content: str) -> str:
     return response.choices[0].message.content or ""
 
 
-def _call_anthropic(system_prompt: str, user_content: str) -> str:
+def _call_anthropic(system_prompt: str, user_content: str, schema: dict | None) -> str:
+    kwargs = {}
+    if schema is not None:
+        kwargs["output_config"] = {
+            "format": {"type": "json_schema", "schema": schema}
+        }
+
     response = _client().messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=4096,
         system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
+        **kwargs,
     )
     return "".join(
         block.text for block in response.content if getattr(block, "type", None) == "text"
     )
 
 
-def call_claude_json(system_prompt: str, user_content: str) -> dict:
+def call_claude_json(
+    system_prompt: str, user_content: str, *, schema_name: str | None = None
+) -> dict:
+    """Call the configured provider and return parsed JSON.
+
+    Pass `schema_name` (a stem under schemas/, e.g. "visit_summary") to have
+    the provider enforce the shape. Without it the model is only asked nicely,
+    which is fine for a scratch call and not fine for anything persisted.
+    """
+    schema = load_schema(schema_name) if schema_name else None
+
     if settings.LLM_PROVIDER == "codex":
-        raw_text = _call_codex(system_prompt, user_content)
+        raw_text = _call_codex(system_prompt, user_content, schema)
     else:
-        raw_text = _call_anthropic(system_prompt, user_content)
+        raw_text = _call_anthropic(system_prompt, user_content, schema)
     try:
         return json.loads(raw_text)
     except json.JSONDecodeError as exc:

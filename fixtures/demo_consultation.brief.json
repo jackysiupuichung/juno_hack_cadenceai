@@ -1,0 +1,90 @@
+{
+  "_meta": {
+    "week": 12,
+    "visit_date": "2026-05-02",
+    "generated_for": "2026-07-25",
+    "check_ins": [
+      7
+    ],
+    "usage": {
+      "input_tokens": 1537,
+      "output_tokens": 5193
+    }
+  },
+  "agreed": [
+    {
+      "commitment_id": "c1",
+      "text": "You will start thyroid replacement medication."
+    },
+    {
+      "commitment_id": "c2",
+      "text": "You will take the medication every morning around 7:30\u20138:00 am on an empty stomach."
+    },
+    {
+      "commitment_id": "c3",
+      "text": "You will pick up the prescription the doctor sends next time you are at the clinic."
+    },
+    {
+      "commitment_id": "c4",
+      "text": "You will watch for a very fast heartbeat or feeling very anxious while on the tablets and seek urgent help if these happen."
+    },
+    {
+      "commitment_id": "c5",
+      "text": "You will have a follow-up in three months to see how the medication has helped."
+    }
+  ],
+  "did": [
+    {
+      "commitment_id": "c1",
+      "text": "Have been taking it most mornings.",
+      "status": "done"
+    },
+    {
+      "commitment_id": "c2",
+      "text": "Took it most mornings, forgot a couple of times.",
+      "status": "partial"
+    },
+    {
+      "commitment_id": "c3",
+      "text": "Never discussed in a check-in.",
+      "status": "unknown"
+    },
+    {
+      "commitment_id": "c4",
+      "text": "Never discussed in a check-in.",
+      "status": "unknown"
+    },
+    {
+      "commitment_id": "c5",
+      "text": "Never discussed in a check-in.",
+      "status": "unknown"
+    }
+  ],
+  "happened": [
+    {
+      "text": "I do get warm and sweaty",
+      "approx_timing": "around week seven"
+    },
+    {
+      "text": "sleep has been rough",
+      "approx_timing": "around week seven"
+    },
+    {
+      "text": "Repeat thyroid function blood test after starting levothyroxine was due around week 7 and has not been recorded as done \u2014 that is 5 weeks past the usual window.",
+      "approx_timing": "around week seven"
+    }
+  ],
+  "changed": [
+    {
+      "text": "Tiredness is a bit better than it was.",
+      "direction": "better"
+    }
+  ],
+  "open_questions": [],
+  "gaps": [
+    "No check-in in weeks 1\u20136 and 8\u201312.",
+    "Never discussed in a check-in: You will pick up the prescription the doctor sends next time you are at the clinic.",
+    "Never discussed in a check-in: You will watch for a very fast heartbeat or feeling very anxious while on the tablets and seek urgent help if these happen.",
+    "Never discussed in a check-in: You will have a follow-up in three months to see how the medication has helped."
+  ]
+}

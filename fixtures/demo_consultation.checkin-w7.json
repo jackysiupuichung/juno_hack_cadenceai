@@ -1,0 +1,69 @@
+{
+  "_meta": {
+    "week": 7,
+    "visit_date": "2026-06-06",
+    "date": "2026-07-25",
+    "ended_because": "red flag over_replacement_cluster fired (same_day)",
+    "covered": [
+      "over_replacement_direct",
+      "sleep_and_weight",
+      "over_replacement_cluster",
+      "over_replacement_cluster"
+    ],
+    "reasoning": [
+      "Week 7 after starting levothyroxine is a key time to pick up over-replacement symptoms that people often don\u2019t link to the medication, so I\u2019m asking directly about them first.",
+      "They\u2019ve reported one over-replacement symptom, so I\u2019m checking for others to see if there\u2019s a cluster that would need flagging.",
+      "They now have a cluster of two over\u2011replacement symptoms, so I should give the context\u2019s own same\u2011day advice before moving on."
+    ],
+    "fired_flags": [
+      "over_replacement_cluster [same_day] 2/2 \u2014 feeling hot when others do not, or sweating more, trouble sleeping"
+    ],
+    "usage": {
+      "input_tokens": 15257,
+      "output_tokens": 3593
+    }
+  },
+  "symptom_mentions": [
+    {
+      "watch_for": "feeling hot when others do not, or sweating more",
+      "flag_id": "over_replacement_cluster",
+      "patient_words": "I do get kind of hot and sweaty when everyone else seems fine.",
+      "week": 7
+    },
+    {
+      "watch_for": "trouble sleeping",
+      "flag_id": "over_replacement_cluster",
+      "patient_words": "sleep\u2019s been a bit rough, lots of tossing and turning",
+      "week": 7
+    }
+  ],
+  "transcript": [
+    {
+      "role": "agent",
+      "text": "Hi, it\u2019s Cadence calling to check in. Have you noticed your heart racing, hands feeling shaky, or feeling hot or sweaty when other people don\u2019t?"
+    },
+    {
+      "role": "patient",
+      "text": "No racing heart or shaky hands. I do get kind of hot and sweaty when everyone else seems fine, figured it was just me."
+    },
+    {
+      "role": "agent",
+      "text": "Thanks for telling me \u2014 have you had any trouble sleeping, or noticed any weight loss without trying?"
+    },
+    {
+      "role": "patient",
+      "text": "Yeah, sleep\u2019s been a bit rough, lots of tossing and turning. My weight\u2019s about the same."
+    },
+    {
+      "role": "agent",
+      "text": "Thanks \u2014 with feeling hot when others aren\u2019t and rough sleep, the advice is: \u201cIf you notice your heart racing, shaky hands, feeling hot or sweaty, trouble sleeping, or losing weight without trying, contact your GP \u2014 these can mean the dose needs looking at.\u201d Would you be able to let your GP know today?"
+    },
+    {
+      "role": "agent",
+      "text": "If you notice your heart racing, shaky hands, feeling hot or sweaty, trouble sleeping, or losing weight without trying, contact your GP \u2014 these can mean the dose needs looking at. Contact your GP."
+    }
+  ],
+  "outcomes": [],
+  "unprompted_reports": [],
+  "questions_for_doctor": []
+}

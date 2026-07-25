@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("timeline", views.timeline, name="timeline"),
     path("summarise", views.summarise, name="summarise"),
+    path("checkin/context", views.checkin_context, name="checkin-context"),
     path("checkin", views.checkin, name="checkin"),
     path("brief", views.brief, name="brief"),
     path("reset", views.reset, name="reset"),
