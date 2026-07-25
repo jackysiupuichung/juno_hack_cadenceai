@@ -137,6 +137,24 @@ export interface Brief {
   gaps: string[]
 }
 
+/**
+ * What ElevenLabs Scribe heard, after the backend has resolved who is who.
+ *
+ * `role_confidence` is worth surfacing rather than hiding: "low" means the
+ * heuristics could not separate the speakers cleanly, and a summary built on
+ * mis-assigned roles will attribute the patient's words to the clinician.
+ */
+export interface Transcription {
+  /** Speaker-labelled lines: "DOCTOR: …" / "PATIENT: …". Prefer this. */
+  dialogue: string
+  /** The flat transcript, with no speaker labels. */
+  text: string
+  duration_seconds: number
+  language_code?: string
+  role_confidence: "high" | "low" | "none"
+  speakers: Array<{ label: string; role: string }>
+}
+
 /** One row of a condition's merged feed: visits, check-ins and briefs. */
 export interface TimelineEvent {
   kind: "visit" | "check_in" | "brief"
@@ -186,14 +204,18 @@ export const api = {
    *
    * Posted to the backend rather than to a Next.js route so the API key stays
    * on one server and the diarization settings stay in one place.
+   *
+   * `dialogue` is preferred over `text` because the backend has already run
+   * speaker inference over the diarized utterances and prefixed each line with
+   * DOCTOR or PATIENT. Everything downstream depends on knowing who said what
+   * — a commitment is something the patient agreed to, and an instruction is
+   * something the clinician gave — so the unlabelled `text` is only a fallback
+   * for when the roles could not be resolved at all.
    */
-  transcribe: async (audio: Blob): Promise<{ transcript: string }> => {
+  transcribe: async (audio: Blob): Promise<Transcription> => {
     const form = new FormData()
     form.append("audio", audio, "consultation.webm")
-    return request<{ transcript: string }>("transcribe", {
-      method: "POST",
-      body: form,
-    })
+    return request<Transcription>("transcribe", { method: "POST", body: form })
   },
 
   /**

@@ -65,8 +65,13 @@ function NewConsultationInner() {
     setError(null)
     try {
       setPhase("transcribing")
-      const { transcript } = await api.transcribe(recorder.blob)
-      if (!transcript.trim()) throw new Error("The recording was empty or unclear.")
+      const heard = await api.transcribe(recorder.blob)
+      // The speaker-labelled form, so the summariser knows which lines are the
+      // clinician's. Falls back to the flat text only when the roles could not
+      // be resolved at all — a summary is still better than nothing, and the
+      // backend hedges its attributions when it cannot tell who spoke.
+      const transcript = heard.dialogue?.trim() || heard.text?.trim() || ""
+      if (!transcript) throw new Error("The recording was empty or unclear.")
 
       // One call: Claude structures the summary, the commitments are
       // extracted and persisted, and the caretaker plans the interval this
