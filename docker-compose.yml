@@ -1,5 +1,5 @@
-# Local development. Source is bind-mounted and Django's autoreloader is on,
-# so edits apply without a rebuild.
+# Local development. Source is bind-mounted for both services and each runs
+# its own dev server with live reload, so edits apply without a rebuild.
 #
 #   docker compose up --build
 #
@@ -29,5 +29,25 @@ services:
       - cadence-db:/data
     command: python manage.py runserver 0.0.0.0:8000
 
+  web:
+    build:
+      context: ./web
+      target: dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Live reload, same idea as backend: bind-mount source, but let
+      # node_modules/.next stay inside the image/container rather than
+      # being shadowed by (or shadowing) whatever's on the host.
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+      - web-next-cache:/app/.next
+    depends_on:
+      - backend
+
 volumes:
   cadence-db:
+  web-node-modules:
+  web-next-cache:

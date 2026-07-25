@@ -47,7 +47,7 @@ function NewConsultationInner() {
 
   React.useEffect(() => {
     if (!hydrated) return
-    if (!data.profile || !data.consent) router.replace("/")
+    if (!data.profile || !data.consent) router.replace("/home")
   }, [hydrated, data.profile, data.consent, router])
 
   const activeConditions = data.conditions.filter((c) => c.status === "active")
@@ -121,7 +121,7 @@ function NewConsultationInner() {
 
   return (
     <AppShell>
-      <ScreenHeader title="New consultation" backHref="/" />
+      <ScreenHeader title="New consultation" backHref="/home" />
 
       <Content className="flex flex-col gap-6 pb-10">
         <section className="flex flex-col gap-5">

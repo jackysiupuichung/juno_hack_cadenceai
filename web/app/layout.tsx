@@ -1,12 +1,18 @@
 import { Analytics } from "@vercel/analytics/next"
 import type { Metadata, Viewport } from "next"
-import { Plus_Jakarta_Sans } from "next/font/google"
+import { Plus_Jakarta_Sans, Fraunces } from "next/font/google"
 import "./globals.css"
 import { AppProvider } from "@/lib/store"
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-jakarta",
+})
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
+  axes: ["opsz", "SOFT"],
 })
 
 export const metadata: Metadata = {
@@ -31,7 +37,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`light bg-background ${jakarta.variable}`}>
+    <html lang="en" className={`light bg-background ${jakarta.variable} ${fraunces.variable}`}>
       <body className="font-sans antialiased">
         <AppProvider>{children}</AppProvider>
         {process.env.NODE_ENV === "production" && <Analytics />}

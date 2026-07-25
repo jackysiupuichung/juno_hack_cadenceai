@@ -17,7 +17,7 @@ export default function ConsentPage() {
 
   React.useEffect(() => {
     if (hydrated && !data.profile) router.replace("/onboarding")
-    else if (hydrated && data.consent) router.replace("/")
+    else if (hydrated && data.consent) router.replace("/home")
   }, [hydrated, data.profile, data.consent, router])
 
   const canContinue = terms && health
@@ -29,7 +29,7 @@ export default function ConsentPage() {
       healthDataProcessing: health,
       timestamp: new Date().toISOString(),
     })
-    router.replace("/")
+    router.replace("/home")
   }
 
   return (

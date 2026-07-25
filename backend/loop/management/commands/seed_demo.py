@@ -75,6 +75,11 @@ class Command(BaseCommand):
             help="Condition to seed the visit under (created if it doesn't exist)",
         )
         parser.add_argument(
+            "--disease-context-id",
+            default="hypothyroidism",
+            help="Slug of a fixtures/*.context.json to ground the condition with. Empty string for none.",
+        )
+        parser.add_argument(
             "--skip-checkin",
             action="store_true",
             help="Only seed the visit summary; skip the check-in and brief steps.",
@@ -96,15 +101,20 @@ class Command(BaseCommand):
         except LLMJSONError as exc:
             raise CommandError(f"Claude did not return valid JSON: {exc.raw_text}") from exc
 
+        disease_context_id = options["disease_context_id"] or None
+
         p = repo.get_or_create_patient()
         condition = next(
             (c for c in repo.list_conditions(p["id"]) if c["name"] == options["condition_name"]),
             None,
-        ) or repo.create_condition(p["id"], options["condition_name"])
+        ) or repo.create_condition(p["id"], options["condition_name"], disease_context_id=disease_context_id)
+        if condition.get("disease_context_id") != disease_context_id:
+            condition = repo.set_condition_disease_context(condition["id"], disease_context_id)
 
         visit_date = options["date"] or date_cls.today().isoformat()
         visit = repo.create_visit(
-            condition["id"],
+            p["id"],
+            condition_id=condition["id"],
             date=visit_date,
             care_setting=options["care_setting"],
             clinician_name=options["clinician_name"],

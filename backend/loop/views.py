@@ -33,6 +33,7 @@ from capture.plan import coverage as plan_coverage
 from capture.redflags import evaluate_flags
 
 from . import caretaker_repo, medication_repo, repo
+from . import disease_context as disease_context_module
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
@@ -49,10 +50,15 @@ from .services import (
 # commitment sat at "pending" as though nobody had ever asked.
 RESOLVED_STATUSES = {"done", "not_done", "partial", "changed"}
 
-# One condition for the demo; the context file is matched by this id. Widening
-# this means matching a visit's diagnosis to a context file, which is a real
-# design question and not one a single-condition demo needs to answer.
-CONDITION_CONTEXT = "hypothyroidism"
+
+def _latest_medication_names(condition_id: str) -> list[str]:
+    """Medication names from the condition's most recent visit — the link
+    from "what was prescribed" to the drugs reference table."""
+    visits = repo.list_visits(condition_id)
+    if not visits:
+        return []
+    medications = (visits[0].get("summary") or {}).get("medications") or []
+    return [m["name"] for m in medications if m.get("name")]
 
 
 def _visits_held(visits: list[dict]) -> list[dict]:
@@ -71,11 +77,15 @@ def _visits_held(visits: list[dict]) -> list[dict]:
     return [v for v in visits if v.get("summary")]
 
 
-def _interval_facts(condition_id: str):
+def _interval_facts(condition: dict):
     """The interval as of today, assembled from what Supabase holds.
 
     Returns (facts, context, check_ins) or (None, None, []) when there is no
     visit yet — the loop cannot describe an interval that has not opened.
+    Raises IntervalError (caught at every call site) when the condition has
+    no disease_context_id set — widening beyond a single demo condition means
+    every condition now names which context file applies to it, rather than
+    the whole app assuming one.
 
     The interval belongs to the latest visit, but the record does not start
     there. A patient on their third appointment has a history, and a check-in
@@ -83,13 +93,17 @@ def _interval_facts(condition_id: str):
     exists to end — so the brief that closed the previous interval, and the
     dates of the visits before this one, are carried in alongside.
     """
+    condition_id = condition["id"]
     visits = _visits_held(repo.list_visits(condition_id))
     if not visits:
         return None, None, []
 
     latest = visits[0]
     check_ins = repo.list_check_ins(condition_id)
-    context = load_context(CONDITION_CONTEXT)
+    disease_context_id = condition.get("disease_context_id")
+    if not disease_context_id:
+        raise IntervalError(f"Condition {condition_id} has no disease_context_id set")
+    context = load_context(disease_context_id)
 
     visit_date = date_cls.fromisoformat(latest["date"][:10])
 
@@ -335,7 +349,7 @@ def medications(request):
     # Days since the consultation that opened this interval. Without a visit
     # there is no clock, and no medication either, so zero is only ever reached
     # with an empty list.
-    visits = repo.list_visits(condition["id"])
+    visits = _visits_held(repo.list_visits(condition["id"]))
     day = (
         medication.days_since(
             date_cls.fromisoformat(visits[-1]["date"][:10]), date_cls.today()
@@ -387,7 +401,9 @@ def conditions(request):
         name = (request.data.get("name") or "").strip()
         if not name:
             return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        created = repo.create_condition(p["id"], name)
+        created = repo.create_condition(
+            p["id"], name, disease_context_id=request.data.get("disease_context_id") or None
+        )
         return Response(created, status=status.HTTP_201_CREATED)
 
     result = []
@@ -415,7 +431,8 @@ def conditions(request):
 @api_view(["POST", "DELETE"])
 def condition_detail(request, condition_id):
     """POST {"status": "completed" | "active"} updates status.
-    DELETE removes the condition and everything under it."""
+    POST {"disease_context_id": "hypothyroidism" | null} links/unlinks a
+    disease context. DELETE removes the condition and everything under it."""
     condition, error = _condition_or_404(condition_id)
     if error:
         return error
@@ -424,28 +441,94 @@ def condition_detail(request, condition_id):
         repo.delete_condition(condition_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    if "disease_context_id" in request.data:
+        dc_id = request.data.get("disease_context_id") or None
+        if dc_id and not disease_context_module.get_disease_context(dc_id):
+            return Response(
+                {"error": f"unknown disease_context_id {dc_id!r}"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        condition = repo.set_condition_disease_context(condition_id, dc_id)
+
     new_status = request.data.get("status")
-    if new_status not in ("active", "completed"):
+    if new_status is not None:
+        if new_status not in ("active", "completed"):
+            return Response(
+                {"error": "status must be 'active' or 'completed'"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        condition = repo.update_condition_status(condition_id, new_status)
+
+    return Response(condition)
+
+
+@api_view(["GET"])
+def disease_contexts(request):
+    """The available disease-context reference files, for a condition to opt into."""
+    return Response(disease_context_module.list_disease_contexts())
+
+
+@api_view(["GET", "POST"])
+def drugs(request):
+    """GET lists the drug reference library. POST adds one, validated against
+    schemas/drug.schema.json's required shape (not enforced at runtime here —
+    this checks the load-bearing keys only)."""
+    if request.method == "GET":
+        return Response(repo.list_drugs())
+
+    content = request.data
+    try:
+        slug = content["drug"]["id"]
+    except (KeyError, TypeError):
         return Response(
-            {"error": "status must be 'active' or 'completed'"}, status=status.HTTP_400_BAD_REQUEST
+            {"error": "expected a drug.schema.json-shaped body with drug.id set"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-    return Response(repo.update_condition_status(condition_id, new_status))
+    if repo.get_drug(slug):
+        return Response({"error": f"drug {slug!r} already exists"}, status=status.HTTP_409_CONFLICT)
+    return Response(repo.create_drug(content), status=status.HTTP_201_CREATED)
 
 
-@api_view(["GET", "DELETE"])
+@api_view(["GET", "POST", "DELETE"])
 def visit_detail(request, visit_id):
     """GET the full visit (summary + transcript + commitments) — the
-    Visit detail / summary screen. DELETE removes a single appointment
-    (Settings: per-appointment erasure)."""
+    Visit detail / summary screen. POST {"condition_id": "..." | null} links
+    or unlinks a standalone consultation to/from a condition. DELETE removes
+    a single appointment (Settings: per-appointment erasure)."""
     if request.method == "DELETE":
         repo.delete_visit(visit_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    if request.method == "POST":
+        if not repo.get_visit(visit_id):
+            return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+        condition_id = request.data.get("condition_id") or None
+        if condition_id:
+            _, error = _condition_or_404(condition_id)
+            if error:
+                return error
+        visit = repo.set_visit_condition(visit_id, condition_id)
+        return Response(visit)
 
     visit = repo.get_visit(visit_id)
     if not visit:
         return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
     commitments = repo.get_commitments_for_visit(visit_id)
     return Response({**visit, "commitments": commitments})
+
+
+@api_view(["GET"])
+def visits(request):
+    """Consultations tab: every consultation the patient has recorded,
+    whether or not it's tagged to a condition."""
+    p = repo.get_or_create_patient()
+    result = []
+    for v in repo.list_visits_for_patient(p["id"]):
+        result.append(
+            {
+                **v,
+                "diagnosis_preview": (v.get("summary") or {}).get("doctor_diagnosis", ""),
+            }
+        )
+    return Response(result)
 
 
 @api_view(["POST"])
@@ -550,11 +633,19 @@ def summarise(request):
     """
     Transcript (pasted, or the output of /api/transcribe) in; a persisted
     visit + its Claude-structured summary + extracted commitments out.
-    Requires "condition_id" in the body.
+    "condition_id" is optional — a consultation can be recorded standalone
+    and tagged to a condition later via POST /api/visits/<id>. The plan, the
+    previous-brief link, and the scheduled/extracted events below all need a
+    condition (events.condition_id is not nullable, and a plan is meaningless
+    without a disease context to plan against), so a standalone visit skips
+    all of that and picks it up once it's linked.
     """
-    condition, error = _condition_or_404(request.data.get("condition_id"))
-    if error:
-        return error
+    condition_id = request.data.get("condition_id") or None
+    condition = None
+    if condition_id:
+        condition, error = _condition_or_404(condition_id)
+        if error:
+            return error
 
     transcript = (request.data.get("transcript") or "").strip()
     if not transcript:
@@ -574,10 +665,12 @@ def summarise(request):
     # what turns a sequence of visits into a record: this interval knows which
     # interval preceded it, so the next brief can say what carried over rather
     # than starting from the transcript again.
-    previous_brief = repo.get_latest_brief(condition["id"])
+    previous_brief = repo.get_latest_brief(condition["id"]) if condition else None
 
+    p = repo.get_or_create_patient()
     visit = repo.create_visit(
-        condition["id"],
+        p["id"],
+        condition_id=condition_id,
         date=request.data.get("date") or date_cls.today().isoformat(),
         care_setting=request.data.get("care_setting", "gp"),
         clinician_name=request.data.get("clinician_name", ""),
@@ -593,56 +686,61 @@ def summarise(request):
     # field is clinician-sourced and confirmed here; the gaps ("a very low
     # dose") are stored as gaps, and closing them is the thread's own work over
     # the following calls. Empty for a consultation that prescribed nothing,
-    # which switches the thread off rather than leaving it half-open.
+    # which switches the thread off rather than leaving it half-open. Runs
+    # regardless of whether a condition is attached yet — the thread hangs off
+    # the visit, not the condition.
     prescribed = medication_repo.sync_from_summary(
         visit["id"], medication.from_summary(summary)
     )
 
-    # The caretaker plans the interval this visit just opened, while the visit
-    # is fresh and nothing is waiting on it. A failure here must not lose the
-    # visit — the summary and commitments are the durable artifact, and a
-    # check-in can still run unplanned off the disease context alone. The
-    # error is reported so the client can offer a re-plan rather than silently
-    # running the whole interval without an agenda.
-    plan_row, plan_error = None, None
-    try:
-        context = load_context(CONDITION_CONTEXT)
-        built = build_plan(summary=summary, context=context, visit_date=visit["date"])
-        plan_row = repo.create_plan(
-            visit["id"], built.data, condition_context=CONDITION_CONTEXT
-        )
-    except (PlanError, IntervalError) as exc:
-        plan_error = str(exc)
+    plan_row, plan_error, created_events = None, None, []
+    if condition:
+        # The caretaker plans the interval this visit just opened, while the
+        # visit is fresh and nothing is waiting on it. A failure here must not
+        # lose the visit — the summary and commitments are the durable
+        # artifact, and a check-in can still run unplanned off the disease
+        # context alone. The error is reported so the client can offer a
+        # re-plan rather than silently running the whole interval without an
+        # agenda.
+        try:
+            context = load_context(condition.get("disease_context_id"))
+            built = build_plan(summary=summary, context=context, visit_date=visit["date"])
+            plan_row = repo.create_plan(
+                visit["id"], built.data, condition_context=condition.get("disease_context_id") or ""
+            )
+        except (PlanError, IntervalError) as exc:
+            plan_error = str(exc)
 
-    # The chronology this visit opens: the visit itself, anything the
-    # transcript dated, and the monitoring events the guideline says are now
-    # due. The last of those is what a calendar can actually render — a blood
-    # test due on a date, rather than "week 7" recomputed on every read.
-    visit_date = date_cls.fromisoformat(visit["date"][:10])
-    rows = [
-        ev.to_row(
-            ev.Event(
-                kind="visit",
-                label=f"Consultation ({visit.get('care_setting', 'gp')})",
-                occurred_at=visit_date,
-                precision="day",
-                source="consultation",
-                recorded_at=visit_date,
-            ),
+        # The chronology this visit opens: the visit itself, anything the
+        # transcript dated, and the monitoring events the guideline says are
+        # now due. The last of those is what a calendar can actually render —
+        # a blood test due on a date, rather than "week 7" recomputed on every
+        # read.
+        visit_date = date_cls.fromisoformat(visit["date"][:10])
+        rows = [
+            ev.to_row(
+                ev.Event(
+                    kind="visit",
+                    label=f"Consultation ({visit.get('care_setting', 'gp')})",
+                    occurred_at=visit_date,
+                    precision="day",
+                    source="consultation",
+                    recorded_at=visit_date,
+                ),
+                condition_id=condition["id"],
+                visit_id=visit["id"],
+            )
+        ]
+        rows += _extract_events(
+            transcript,
+            on=visit_date,
+            source="consultation",
             condition_id=condition["id"],
             visit_id=visit["id"],
         )
-    ]
-    rows += _extract_events(
-        transcript,
-        on=visit_date,
-        source="consultation",
-        condition_id=condition["id"],
-        visit_id=visit["id"],
-    )
-    rows += _scheduled_rows(condition["id"], visit["id"], visit_date)
+        rows += _scheduled_rows(condition, visit["id"], visit_date)
 
-    created_events = repo.create_events(rows) if rows else []
+        created_events = repo.create_events(rows) if rows else []
 
     return Response(
         {
@@ -657,7 +755,7 @@ def summarise(request):
     )
 
 
-def _scheduled_rows(condition_id: str, visit_id: str, visit_date: date_cls) -> list[dict]:
+def _scheduled_rows(condition: dict, visit_id: str, visit_date: date_cls) -> list[dict]:
     """Due dates the guideline implies, as rows a calendar can render.
 
     Only events whose clock this visit actually starts. `dose_change` and
@@ -665,7 +763,7 @@ def _scheduled_rows(condition_id: str, visit_id: str, visit_date: date_cls) -> l
     check-in that reports them schedules the follow-up rather than this.
     """
     try:
-        context = load_context(CONDITION_CONTEXT)
+        context = load_context(condition.get("disease_context_id"))
     except IntervalError:
         return []
 
@@ -684,7 +782,7 @@ def _scheduled_rows(condition_id: str, visit_id: str, visit_date: date_cls) -> l
                     source="scheduled",
                     context_ids=(event.get("id", ""),),
                 ),
-                condition_id=condition_id,
+                condition_id=condition["id"],
                 visit_id=visit_id,
             )
         )
@@ -706,7 +804,7 @@ def checkin_context(request):
         return error
 
     try:
-        facts, context, _ = _interval_facts(condition["id"])
+        facts, context, _ = _interval_facts(condition)
     except IntervalError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -798,7 +896,7 @@ def checkin_session(request):
         )
 
     try:
-        facts, context, _ = _interval_facts(condition["id"])
+        facts, context, _ = _interval_facts(condition)
     except IntervalError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -888,6 +986,14 @@ def checkin(request):
         commitments_context = [{"commitment_id": c["id"], "text": c["text"]} for c in open_commitments]
         user_content = f"Transcript:\n{transcript}\n\nOpen commitments:\n{commitments_context}"
 
+        relevant_drugs = repo.get_drugs_by_names(_latest_medication_names(condition["id"]))
+        if relevant_drugs:
+            drug_summaries = [
+                {"name": d["content"]["drug"]["name"], "side_effects": d["content"]["side_effects"]}
+                for d in relevant_drugs
+            ]
+            user_content += f"\n\nCurrent medications' generic side-effect reference:\n{drug_summaries}"
+
         # A browser voice agent speaks; it does not classify. It cannot map
         # "I've been boiling at night" onto the context's canonical phrase,
         # and a mention that never gets mapped is a red flag that never fires
@@ -897,7 +1003,7 @@ def checkin(request):
         # trustworthy: a phrase the context does not name cannot enter.
         vocabulary, flag_ids = [], []
         try:
-            ctx = load_context(CONDITION_CONTEXT)
+            ctx = load_context(condition.get("disease_context_id"))
             vocabulary = watch_for_vocabulary(ctx)
             flag_ids = [f["id"] for f in ctx.get("red_flags", [])]
         except IntervalError:
@@ -998,7 +1104,7 @@ def checkin(request):
     # looking at a single transcript.
     fired = []
     try:
-        facts, context, prior = _interval_facts(condition["id"])
+        facts, context, prior = _interval_facts(condition)
         if facts is not None:
             mentions = [
                 {
@@ -1114,7 +1220,7 @@ def plan(request):
             )
         latest = visits[0]
         try:
-            context = load_context(CONDITION_CONTEXT)
+            context = load_context(condition.get("disease_context_id"))
             built = build_plan(
                 summary=latest.get("summary") or {},
                 context=context,
@@ -1126,7 +1232,7 @@ def plan(request):
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         row = repo.create_plan(
-            latest["id"], built.data, condition_context=CONDITION_CONTEXT
+            latest["id"], built.data, condition_context=condition.get("disease_context_id") or ""
         )
         return Response(row, status=status.HTTP_201_CREATED)
 
@@ -1135,7 +1241,7 @@ def plan(request):
         return Response({"error": "no plan for this interval"}, status=status.HTTP_404_NOT_FOUND)
 
     try:
-        facts, _, _ = _interval_facts(condition["id"])
+        facts, _, _ = _interval_facts(condition)
     except IntervalError:
         facts = None
 
@@ -1199,6 +1305,17 @@ def brief(request):
         ],
     }
 
+    relevant_drugs = repo.get_drugs_by_names(_latest_medication_names(condition["id"]))
+    if relevant_drugs:
+        payload["medication_reference"] = [
+            {
+                "name": d["content"]["drug"]["name"],
+                "side_effects": d["content"]["side_effects"],
+                "monitoring_note": d["content"]["monitoring_note"],
+            }
+            for d in relevant_drugs
+        ]
+
     # Anything that measures this interval against the guideline is written in
     # Python and handed over as a line to reproduce verbatim. "The repeat blood
     # test was due around week 7 and is 3 weeks past" is a fact about the
@@ -1238,7 +1355,7 @@ def brief(request):
 
     user_content = json.dumps(payload, indent=2)
     try:
-        facts, _, _ = _interval_facts(condition["id"])
+        facts, _, _ = _interval_facts(condition)
         if facts is not None:
             lines = observations(facts) + ev.observations(outstanding, today=today)
             if lines:

@@ -38,7 +38,7 @@ export default function ConditionDetailPage() {
   const condition = data.conditions.find((c) => c.id === params.id)
 
   React.useEffect(() => {
-    if (hydrated && !condition) router.replace("/")
+    if (hydrated && !condition) router.replace("/home")
   }, [hydrated, condition, router])
 
   if (!condition) {
@@ -58,7 +58,7 @@ export default function ConditionDetailPage() {
     <AppShell>
       <ScreenHeader
         title={condition.name}
-        backHref="/"
+        backHref="/home"
         right={<StatusBadge status={condition.status} />}
       />
 
@@ -190,7 +190,7 @@ export default function ConditionDetailPage() {
                   variant="destructive"
                   onClick={() => {
                     deleteCondition(condition.id)
-                    router.replace("/")
+                    router.replace("/home")
                   }}
                 >
                   Delete permanently

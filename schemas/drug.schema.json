@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/drug.schema.json",
+  "title": "Drug reference",
+  "description": "Static, hand-authored generic medication reference. Like disease_context.schema.json, it does not constrain an LLM response — it validates a curated file matched against a visit's medications by name and fed into the check-in and brief stages as grounding for recognising side effects and monitoring needs. It never contains dosing advice or a recommendation to change a medication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["drug", "sources", "interactions", "side_effects", "monitoring_note", "safety"],
+  "properties": {
+    "drug": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "plain_name", "typical_use"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable slug used as the row's key, e.g. \"levothyroxine\".",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "name": { "type": "string", "description": "Generic/clinical name." },
+        "plain_name": {
+          "type": "string",
+          "description": "What a patient would call it, if different from name."
+        },
+        "typical_use": {
+          "type": "string",
+          "description": "What it's generally prescribed for, for context only."
+        },
+        "aliases": {
+          "type": "array",
+          "description": "Other names a doctor or patient might use for it in a transcript — a doctor often says \"synthetic thyroid\", never \"levothyroxine\".",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "url", "publisher", "retrieved"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "publisher": { "type": "string" },
+          "retrieved": { "type": "string" }
+        }
+      }
+    },
+    "interactions": {
+      "type": "array",
+      "description": "Generic interaction notes, for context only — never a instruction to change anything.",
+      "items": { "type": "string" }
+    },
+    "side_effects": {
+      "type": "array",
+      "description": "Known side effects in plain language, used to recognise when a patient's own words describe one — never to suggest stopping or changing the dose.",
+      "items": { "type": "string" }
+    },
+    "monitoring_note": {
+      "type": "string",
+      "description": "What's typically monitored while on this drug (e.g. blood tests), for context only."
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["framing_rule"],
+      "properties": {
+        "framing_rule": {
+          "type": "string",
+          "description": "How this file's contents may be surfaced to a patient — e.g. as recognition, never as advice."
+        }
+      }
+    }
+  }
+}
