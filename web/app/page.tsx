@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { ConditionCard } from "@/components/condition-card"
 import { ConsultationCard } from "@/components/consultation-card"
 import { NewConditionDialog } from "@/components/new-condition-dialog"
+import { CheckInNotification } from "@/components/check-in-notification"
 import { cn } from "@/lib/utils"
 
 type Tab = "conditions" | "consultations"
@@ -76,6 +77,16 @@ export default function HomePage() {
       </header>
 
       <Content className="flex flex-col gap-5 pb-28">
+        {/* Above everything else: a check-in that has to be hunted for is one
+            that does not happen, and the interval is what this product is. */}
+        {active.map((c) => (
+          <CheckInNotification
+            key={c.id}
+            conditionId={c.id}
+            conditionName={c.name}
+          />
+        ))}
+
         {upcoming.length > 0 && (
           <section className="flex flex-col gap-2">
             {upcoming.map((r) => {

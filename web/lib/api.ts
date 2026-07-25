@@ -155,6 +155,22 @@ export interface Transcription {
   speakers: Array<{ label: string; role: string }>
 }
 
+/**
+ * Everything the browser needs to open one voice call.
+ *
+ * `dynamic_variables` carries this interval into the agent's prompt — what was
+ * agreed, which week it is, and, crucially, the safety boundary. The browser
+ * agent speaks outside safety.py's reach, so the prohibitions and the verbatim
+ * red-flag lines travel with the call rather than living only in the agent's
+ * standing configuration, which is set elsewhere and can drift.
+ */
+export interface CheckInSession {
+  agent_id: string
+  conversation_token: string
+  expires_in: number
+  dynamic_variables: Record<string, string>
+}
+
 /** One row of a condition's merged feed: visits, check-ins and briefs. */
 export interface TimelineEvent {
   kind: "visit" | "check_in" | "brief"
@@ -251,11 +267,18 @@ export const api = {
   checkInContext: (conditionId: string) =>
     get<CheckInContext>(`checkin/context?condition_id=${conditionId}`),
 
+  /**
+   * Mint a short-lived token so the browser can talk to the voice agent.
+   *
+   * The API key never leaves the server; this token is scoped to one
+   * conversation and expires in ten minutes, so it is fetched at the moment
+   * the patient starts a call rather than when the page loads.
+   *
+   * Throws ApiError with status 503 when no agent is provisioned, which the
+   * calling page treats as "offer the form" rather than as a failure.
+   */
   checkInSession: (conditionId: string) =>
-    post<{ token?: string; agent_id?: string; error?: string }>(
-      "checkin/session",
-      { condition_id: conditionId },
-    ),
+    post<CheckInSession>("checkin/session", { condition_id: conditionId }),
 
   /**
    * Record a check-in. Either a voice transcript, which the backend maps onto
