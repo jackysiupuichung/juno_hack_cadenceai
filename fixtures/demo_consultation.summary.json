@@ -1,0 +1,64 @@
+{
+  "_generated_by": {
+    "provider": "codex",
+    "model": "gpt-5",
+    "source_fixture": "demo_consultation.json",
+    "source_audio": "demo_consultation.m4a",
+    "usage": {
+      "input_tokens": 1588,
+      "output_tokens": 5888
+    }
+  },
+  "summary": {
+    "patient_symptoms_summary": "You reported recent fatigue, \"a little bit of flap,\" and very dry skin. You had one side of your thyroid removed about one month ago for a tumor that you described as a \"good one\" but getting too big. You came today to review your blood test results and ask what to do.",
+    "doctor_diagnosis": "Your thyroid levels are low.",
+    "doctor_advice": "Start thyroid replacement medication at a very low dose. Take it on an empty stomach every day, ideally at the same time, best first thing in the morning with a glass of water (around 7:30–8:00 am). Watch for signs of too much thyroid: your heart beating very fast, feeling very anxious, feeling really bad or really stressed; if that happens, seek urgent help or go to the hospital. The doctor explained that thyroid hormones regulate metabolism and that too much can cause arrhythmia, a very fast heartbeat, and make you feel anxious or stressed. A follow-up review was suggested in three months to see how the medication has helped.",
+    "red_flags": [
+      "Heart beating really fast while on the tablets",
+      "Feeling very anxious while on the tablets",
+      "Feeling really bad or really stressed while on the tablets"
+    ],
+    "medications": [
+      {
+        "name": "thyroid replacement medication",
+        "dosage": "unclear — please confirm with your doctor",
+        "frequency": "every morning",
+        "duration": "",
+        "instructions": "Take on an empty stomach every day at the same time, best first thing in the morning with a glass of water (around 7:30–8:00 am)."
+      }
+    ],
+    "things_to_avoid": [],
+    "lifestyle_advice": [],
+    "commitments": [
+      {
+        "text": "You will take your thyroid replacement medication every morning around 7:30–8:00 am on an empty stomach, ideally at the same time each day, with a glass of water.",
+        "type": "medication",
+        "timeframe": "every day",
+        "source_quote": "Another thing to look out for is that you need to take these medications on an empty stomach every day, ideally around the same time each day. So the best thing to do is to do it first thing in the morning with a glass of water."
+      },
+      {
+        "text": "You will pick up the thyroid replacement medication prescription the doctor sends.",
+        "type": "medication",
+        "timeframe": "next time you're here",
+        "source_quote": "I'll send the prescription for this, and then you can pick it up next time you're here."
+      },
+      {
+        "text": "You will seek urgent help if your heart is beating really fast or you feel very anxious while on the tablets.",
+        "type": "watch_for",
+        "timeframe": "while on the tablets",
+        "source_quote": "if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently."
+      },
+      {
+        "text": "You will have a review in 3 months to see how the medication has helped.",
+        "type": "followup",
+        "timeframe": "3 months",
+        "source_quote": "three months and then we can see how it's helped."
+      }
+    ],
+    "future_plan": {
+      "follow_up_needed": true,
+      "date_or_timeframe": "3 months",
+      "purpose": "to see how the medication has helped"
+    }
+  }
+}
