@@ -44,6 +44,8 @@ from dotenv import load_dotenv
 
 from . import safety
 from .interval import IntervalFacts, as_agent_brief, watch_for_vocabulary
+from .plan import CheckInPlan
+from .plan import as_agent_brief as plan_as_agent_brief
 from .redflags import FiredFlag, evaluate_flags
 
 load_dotenv()
@@ -249,22 +251,43 @@ def _codex_client() -> openai.OpenAI:
     return openai.OpenAI(api_key=os.environ["CODEX_API_KEY"], base_url=CODEX_BASE_URL)
 
 
-def _build_system_prompt(facts: IntervalFacts, context: dict) -> str:
-    """The standing instructions, the interval, and the whole clinical context.
+def _build_system_prompt(
+    facts: IntervalFacts, context: dict, plan: CheckInPlan | None = None
+) -> str:
+    """The standing instructions, the interval, the agenda, and the context.
 
     The context goes in as JSON rather than prose: the agent needs to reason
     over structured fields (ask_from_week, cluster_threshold, links_to) and
     cite ids back in `covers`, and flattening it to prose loses exactly the
     structure that makes that possible.
+
+    The plan is rendered as aims rather than JSON, and deliberately after the
+    interval but before the context: it is guidance about what this call is
+    for, not a script, and an agent handed a list of sentences reads them out.
     """
     prohibited = "\n".join(
         f"- {line}" for line in context.get("safety", {}).get("prohibited_outputs", [])
     )
     framing = context.get("safety", {}).get("framing_rule", "")
 
+    agenda = ""
+    if plan is not None:
+        rendered = plan_as_agent_brief(plan, facts.week)
+        if rendered:
+            agenda = (
+                f"=== THE AGENDA FOR THIS INTERVAL ===\n{rendered}\n\n"
+                "This agenda was set when the appointment was summarised, with "
+                "more time than you have on this call. Treat it as informed "
+                "judgement about what matters, not as a script — phrase items "
+                "yourself, follow what the patient says, and record which item "
+                "ids you covered in `covers` so a question nobody reached can "
+                "be reported honestly rather than silently dropped.\n\n"
+            )
+
     return (
         f"{SYSTEM_PROMPT}\n\n"
         f"=== THIS INTERVAL ===\n{as_agent_brief(facts)}\n\n"
+        f"{agenda}"
         f"=== CLINICAL CONTEXT FOR {facts.condition_name.upper()} ===\n"
         f"{json.dumps(context, indent=2)}\n\n"
         f"=== THE BOUNDARY ===\n{framing}\n\n"
@@ -301,6 +324,7 @@ def run_turn(
     facts: IntervalFacts,
     context: dict,
     history: list[dict],
+    plan: CheckInPlan | None = None,
 ) -> TurnDecision:
     """Ask the agent for its next move.
 
@@ -309,11 +333,14 @@ def run_turn(
         context: The disease context the agent reasons over.
         history: Alternating turns so far, as {"role": "assistant"|"user",
             "content": str}. Empty for the opening turn.
+        plan: The caretaker's agenda for this interval, if one was made. The
+            agent still decides what to ask; this tells it what was judged
+            worth asking when there was time to think about it properly.
 
     Returns:
         A TurnDecision whose `say` has already passed the safety filter.
     """
-    system = _build_system_prompt(facts, context)
+    system = _build_system_prompt(facts, context, plan)
     schema = turn_schema(context)
 
     messages = list(history) or [
@@ -391,6 +418,7 @@ def run_check_in(
     context: dict,
     patient: PatientVoice,
     max_turns: int = MAX_TURNS,
+    plan: CheckInPlan | None = None,
 ) -> CheckIn:
     """Run a whole call and return the record the brief will read.
 
@@ -425,7 +453,9 @@ def run_check_in(
     fired: list[FiredFlag] = []
 
     for turn_index in range(max_turns):
-        decision = run_turn(facts=facts, context=context, history=history)
+        decision = run_turn(
+            facts=facts, context=context, history=history, plan=plan
+        )
         usage["input_tokens"] += decision.usage.get("input_tokens", 0)
         usage["output_tokens"] += decision.usage.get("output_tokens", 0)
 

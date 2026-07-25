@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/check_in_plan.schema.json",
+  "title": "Check-in plan",
+  "description": "What the caretaker intends to find out across the interval a consultation opened, written once when the visit is summarised rather than improvised call by call. This is deliberately a plan and not a script: it fixes the agenda — which commitments and which clinical patterns are worth pursuing, and from which week — while leaving the wording, the ordering and the follow-ups to the agent on the call. Persisting it is what makes the interval auditable ahead of time rather than only in hindsight: the brief can report what was planned against what was actually asked, and a plan that never got covered is itself a finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["interval_goal", "items", "call_schedule", "reasoning"],
+  "properties": {
+    "interval_goal": {
+      "type": "string",
+      "description": "One sentence on what this interval has to establish before the next appointment, in plain language. The agent reads this to know what the call is ultimately for when the specific items run out."
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Why this agenda for this patient — what in the visit or the clinical context shaped it. The audit trail for the plan itself, as `reasoning` is for a single turn."
+    },
+    "items": {
+      "type": "array",
+      "description": "The agenda. Ordered by priority, most important first.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "intent",
+          "why",
+          "from_week",
+          "priority",
+          "commitment_ids",
+          "context_ids"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable slug for this agenda item, e.g. \"blood_test_done\". Reused as a `covers` value so turns can be matched back to the plan.",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "intent": {
+            "type": "string",
+            "description": "What this item is trying to establish, stated as an aim rather than as a question to read aloud — e.g. \"whether the repeat blood test has actually happened\". The agent phrases it itself."
+          },
+          "why": {
+            "type": "string",
+            "description": "Why it matters in this interval, grounded in the visit or the disease context. Never a clinical conclusion."
+          },
+          "from_week": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The earliest week this is worth asking. Asking about a seven-week blood test in week one wastes a question on a patient whose scarcest resource is attention."
+          },
+          "until_week": {
+            "type": ["integer", "null"],
+            "description": "After this week the item stops being worth asking, or null if it stands for the whole interval."
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3,
+            "description": "1 is must-ask on every eligible call, 3 is ask if there is room. The turn budget is small and fatigue is a symptom of this population, so most calls will not reach priority 3."
+          },
+          "ask_directly": {
+            "type": "boolean",
+            "description": "True when an open question will not surface this and it must be asked about by name. Set for patterns the patient would never connect to their condition and so will never volunteer — the highest-value catches are all of this kind."
+          },
+          "commitment_ids": {
+            "type": "array",
+            "description": "Commitments from the visit this item tracks. Empty when it pursues a clinical pattern rather than something the patient agreed to.",
+            "items": { "type": "string" }
+          },
+          "context_ids": {
+            "type": "array",
+            "description": "Ids from the disease context this item derives from — red_flags, trajectory, monitoring or check_in_probes. Every item should cite at least one unless it comes purely from what was said at the visit.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "call_schedule": {
+      "type": "array",
+      "description": "When to call across the interval, and what each call is mainly for. Weeks are relative to the visit date.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["week", "focus", "item_ids"],
+        "properties": {
+          "week": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Weeks after the visit."
+          },
+          "focus": {
+            "type": "string",
+            "description": "What this particular call is for, in one phrase."
+          },
+          "item_ids": {
+            "type": "array",
+            "description": "Agenda items intended for this call.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

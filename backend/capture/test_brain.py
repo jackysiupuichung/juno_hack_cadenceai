@@ -417,3 +417,396 @@ class ScriptedPatientTests(SimpleTestCase):
         patient.respond("First question?")
         patient.respond("Second question?")
         self.assertEqual(len(patient.said), 2)
+
+
+def _plan(items=(), schedule=(), goal="Establish whether the treatment has been started and tolerated."):
+    """A plan built by hand.
+
+    `build_plan` is a model call; nothing here may reach the network, and the
+    arithmetic under test belongs to Python regardless of what the planner said.
+    """
+    from capture.plan import CheckInPlan
+
+    return CheckInPlan(data={
+        "interval_goal": goal,
+        "items": list(items),
+        "call_schedule": list(schedule),
+        "reasoning": "hand-written for test",
+    })
+
+
+def _item(item_id, *, from_week=0, until_week=None, priority=2, intent=None,
+          ask_directly=False):
+    return {
+        "id": item_id,
+        "intent": intent or f"establish {item_id}",
+        "why": "because the interval needs it",
+        "from_week": from_week,
+        "until_week": until_week,
+        "priority": priority,
+        "ask_directly": ask_directly,
+        "commitment_ids": [],
+        "context_ids": [],
+    }
+
+
+class PlanEligibilityTests(SimpleTestCase):
+    """When an agenda item becomes askable is arithmetic, not judgement.
+
+    The planner says which week an item is worth raising from; Python decides
+    whether that week has arrived. Getting it wrong in either direction costs
+    the same scarce thing — a question asked a week before it could possibly
+    have an answer, or one that quietly never gets asked at all.
+    """
+
+    def test_an_item_is_not_due_before_its_from_week(self):
+        plan = _plan([_item("blood_test", from_week=7)])
+        self.assertEqual(plan.due_items(6), [])
+
+    def test_an_item_is_due_on_the_exact_week_it_opens(self):
+        """Off by one here is a question asked a week early, or never."""
+        plan = _plan([_item("blood_test", from_week=7)])
+        self.assertEqual([i["id"] for i in plan.due_items(7)], ["blood_test"])
+
+    def test_an_item_with_no_until_week_stands_for_the_rest_of_the_interval(self):
+        plan = _plan([_item("still_taking_it", from_week=1, until_week=None)])
+        self.assertEqual([i["id"] for i in plan.due_items(52)], ["still_taking_it"])
+
+    def test_an_until_week_retires_the_item_after_that_week(self):
+        """Some questions stop being worth asking, and asking anyway is a cost."""
+        plan = _plan([_item("early_side_effects", from_week=1, until_week=4)])
+        self.assertEqual([i["id"] for i in plan.due_items(4)], ["early_side_effects"])
+        self.assertEqual(plan.due_items(5), [])
+
+    def test_a_week_before_the_interval_starts_is_due_for_nothing_scheduled_later(self):
+        plan = _plan([_item("a", from_week=0), _item("b", from_week=2)])
+        self.assertEqual([i["id"] for i in plan.due_items(0)], ["a"])
+
+    def test_due_items_come_back_most_important_first(self):
+        """A call has ten turns; they must be spent on priority 1 first."""
+        plan = _plan([
+            _item("nice_to_have", priority=3),
+            _item("must_ask", priority=1),
+            _item("worth_asking", priority=2),
+        ])
+        self.assertEqual([i["id"] for i in plan.due_items(3)],
+                         ["must_ask", "worth_asking", "nice_to_have"])
+
+    def test_an_empty_plan_is_due_for_nothing_rather_than_failing(self):
+        self.assertEqual(_plan().due_items(4), [])
+
+
+class NextCallWeekTests(SimpleTestCase):
+    """The agent needs to know whether the interval continues past this call.
+
+    Told there is another call coming, it can leave a thread for next time.
+    Told there is not, it knows this is the last chance to ask before the
+    appointment the brief is written for.
+    """
+
+    SCHEDULE = [
+        {"week": 2, "focus": "started?", "item_ids": []},
+        {"week": 7, "focus": "test done?", "item_ids": []},
+        {"week": 12, "focus": "before the appointment", "item_ids": []},
+    ]
+
+    def test_it_returns_the_next_strictly_later_call(self):
+        self.assertEqual(_plan(schedule=self.SCHEDULE).next_call_week(2), 7)
+
+    def test_the_current_week_is_not_its_own_next_call(self):
+        """Otherwise every call announces itself as the one still to come."""
+        self.assertEqual(_plan(schedule=self.SCHEDULE).next_call_week(7), 12)
+
+    def test_it_is_none_once_the_interval_has_no_further_calls(self):
+        self.assertIsNone(_plan(schedule=self.SCHEDULE).next_call_week(12))
+
+    def test_an_unscheduled_interval_has_no_next_call(self):
+        self.assertIsNone(_plan().next_call_week(0))
+
+
+class PlanCoverageTests(SimpleTestCase):
+    """An unasked question must be reported, not silently dropped.
+
+    This is the honesty guarantee the whole plan exists for. A doctor reading
+    the brief takes absence as "nothing to report" — so a question that was on
+    the agenda and never got asked has to say so by name. A gap reported plainly
+    is useful; a gap left invisible is a claim the record cannot support.
+    """
+
+    PLAN = _plan([
+        _item("blood_test", from_week=7, priority=1),
+        _item("taking_it", from_week=1, priority=1),
+        _item("late_review", from_week=20, priority=2),
+    ])
+
+    def test_a_due_item_nobody_covered_is_reported_as_missed(self):
+        from capture.plan import coverage
+
+        result = coverage(self.PLAN, covered=["taking_it"], week=8)
+        self.assertEqual(result["missed"], ["blood_test"])
+
+    def test_a_covered_item_is_recorded_as_covered(self):
+        from capture.plan import coverage
+        result = coverage(self.PLAN, covered=["taking_it", "blood_test"], week=8)
+        self.assertEqual(sorted(result["covered"]), ["blood_test", "taking_it"])
+        self.assertEqual(result["missed"], [])
+
+    def test_an_item_that_was_not_yet_due_is_neither_covered_nor_missed(self):
+        """Not asking about week 20 in week 8 is not a failure to report."""
+        from capture.plan import coverage
+        result = coverage(self.PLAN, covered=["taking_it"], week=8)
+        self.assertNotIn("late_review", result["covered"])
+        self.assertNotIn("late_review", result["missed"])
+        self.assertEqual(result["not_yet_due"], ["late_review"])
+
+    def test_every_planned_item_is_accounted_for_somewhere(self):
+        """No item may vanish between the three buckets."""
+        from capture.plan import coverage
+        result = coverage(self.PLAN, covered=["blood_test"], week=8)
+        placed = set(result["covered"]) | set(result["missed"]) | set(result["not_yet_due"])
+        self.assertEqual(placed, {i["id"] for i in self.PLAN.items})
+
+    def test_covering_something_that_was_never_planned_does_not_invent_coverage(self):
+        from capture.plan import coverage
+        result = coverage(self.PLAN, covered=["something_improvised"], week=8)
+        self.assertEqual(sorted(result["missed"]), ["blood_test", "taking_it"])
+        self.assertEqual(result["covered"], [])
+
+
+class AgentBriefFromPlanTests(SimpleTestCase):
+    """What the agent is allowed to see going into a call.
+
+    The rendering is the enforcement point: an agent handed an item it cannot
+    possibly have an answer for will ask about it anyway, and the patient is
+    asked in week two whether they have had a blood test due in week seven.
+    """
+
+    def test_a_not_yet_due_item_never_reaches_the_agent(self):
+        from capture.plan import as_agent_brief
+
+        plan = _plan([
+            _item("taking_it", from_week=1, intent="whether they started the tablet"),
+            _item("blood_test", from_week=7, intent="whether the repeat blood test happened"),
+        ])
+        rendered = as_agent_brief(plan, week=2)
+        self.assertIn("whether they started the tablet", rendered)
+        self.assertNotIn("whether the repeat blood test happened", rendered)
+        self.assertNotIn("[blood_test]", rendered)
+
+    def test_the_agent_is_told_the_interval_continues_past_this_call(self):
+        """So it does not force seven weeks of agenda into one tired call."""
+        from capture.plan import as_agent_brief
+
+        plan = _plan(
+            [_item("taking_it", from_week=1), _item("blood_test", from_week=7)],
+            schedule=[{"week": 7, "focus": "after the test", "item_ids": []}],
+        )
+        rendered = as_agent_brief(plan, week=2)
+        self.assertIn("1 further item(s)", rendered)
+        self.assertIn("week 7", rendered)
+
+    def test_an_ask_directly_item_is_marked_as_one_the_patient_will_not_raise(self):
+        from capture.plan import as_agent_brief
+
+        plan = _plan([_item("palpitations", from_week=1, ask_directly=True)])
+        self.assertIn("they will not raise it", as_agent_brief(plan, week=2))
+
+    def test_a_planless_interval_renders_to_nothing_rather_than_a_stub(self):
+        """An empty agenda block in the prompt reads as "there is nothing to ask"."""
+        from capture.plan import as_agent_brief
+
+        self.assertEqual(as_agent_brief(_plan(), week=3), "")
+
+
+class TrajectoryWindowTests(SimpleTestCase):
+    """Where the interval sits on the expected course — a position, not a verdict.
+
+    The guideline's windows are wide and people fall outside them for reasons
+    that have nothing to do with the treatment. So the only thing computed here
+    is which side of the window today is on.
+    """
+
+    def _fact(self, today, event_id="early_symptom_change"):
+        facts = _facts(today=today)
+        return next(t for t in facts.trajectory if t.event["id"] == event_id)
+
+    def test_before_the_earliest_week_it_is_too_early(self):
+        # early_symptom_change opens at week 3; week 2 is before it.
+        fact = self._fact(date(2026, 6, 15))
+        self.assertEqual(fact.status, "too_early")
+        self.assertEqual(fact.weeks_past_expected, 0)
+
+    def test_the_earliest_week_itself_is_already_inside_the_window(self):
+        fact = self._fact(date(2026, 6, 22))  # week 3
+        self.assertEqual(fact.status, "in_window")
+
+    def test_the_expected_by_week_itself_is_still_inside_the_window(self):
+        """A marker is not late on the day it was expected by."""
+        fact = self._fact(date(2026, 7, 27))  # week 8
+        self.assertEqual(fact.status, "in_window")
+        self.assertEqual(fact.weeks_past_expected, 0)
+
+    def test_after_the_expected_week_it_is_past_expected_and_counted(self):
+        fact = self._fact(date(2026, 8, 17))  # week 11
+        self.assertEqual(fact.status, "past_expected")
+        self.assertEqual(fact.weeks_past_expected, 3)
+
+    def test_markers_that_are_still_too_early_are_reported_not_omitted(self):
+        """"Nothing to say yet" and "no such milestone" are different facts."""
+        facts = _facts(today=date(2026, 6, 15))
+        self.assertEqual(len(facts.trajectory), 3)
+        self.assertTrue(any(t.status == "too_early" for t in facts.trajectory))
+
+    def test_markers_sit_at_different_points_of_the_same_interval(self):
+        facts = _facts(today=date(2026, 8, 17))  # week 11
+        by_id = {t.event["id"]: t.status for t in facts.trajectory}
+        self.assertEqual(by_id["early_symptom_change"], "past_expected")
+        self.assertEqual(by_id["full_symptom_resolution"], "in_window")
+        self.assertEqual(by_id["biochemical_stability"], "too_early")
+
+
+class TrajectoryObservationTests(SimpleTestCase):
+    """Only a missed window is worth a line; being inside one is not news."""
+
+    def test_nothing_is_said_about_a_marker_that_is_still_too_early(self):
+        lines = observations(_facts(today=date(2026, 6, 15)))  # week 2
+        self.assertFalse(any("No change in symptoms" in line for line in lines))
+
+    def test_nothing_is_said_about_a_marker_inside_its_window(self):
+        """Being on course is the ordinary case and needs no commentary."""
+        lines = observations(_facts(today=date(2026, 7, 27)))  # week 8
+        self.assertFalse(any("No change in symptoms" in line for line in lines))
+
+    def test_a_marker_past_its_window_is_stated_with_both_dates(self):
+        lines = observations(_facts(today=date(2026, 8, 17)))  # week 11
+        line = next(l for l in lines if "No change in symptoms" in l)
+        self.assertIn("by week 8", line)
+        self.assertIn("it is now week 11", line)
+
+    def test_the_context_wording_is_reproduced_rather_than_paraphrased(self):
+        """Patient-facing clinical wording is never composed here."""
+        source = next(t for t in load_context()["trajectory"]
+                      if t["id"] == "early_symptom_change")
+        lines = observations(_facts(today=date(2026, 8, 17)))
+        self.assertTrue(any(source["if_not_met"].rstrip(". ") in l for l in lines))
+
+
+class TrajectorySafetyTests(SimpleTestCase):
+    """The line most likely to become a diagnosis is the one about the course.
+
+    `safety.prohibited_outputs` names this exact failure — framing an
+    expected-window shortfall as something being wrong. At a late week several
+    markers have been missed at once, which is precisely when a sentence about
+    "the treatment not working" would be most tempting and least supportable.
+    Every line the interval produces there must pass the same filter the
+    agent's own utterances do.
+    """
+
+    LATE = compute_interval_facts(
+        summary=_summary(),
+        context=load_context(),
+        visit_date=date(2026, 1, 1),
+        today=date(2026, 8, 1),
+        prior_check_ins=[],
+    )
+
+    def test_the_late_week_really_does_have_several_missed_markers(self):
+        """Otherwise the safety test below passes by having nothing to say."""
+        self.assertEqual(self.LATE.week, 30)
+        past = [t for t in self.LATE.trajectory if t.status == "past_expected"]
+        self.assertEqual(len(past), 3)
+
+    def test_every_line_produced_at_a_late_week_passes_the_safety_filter(self):
+        for line in observations(self.LATE):
+            self.assertEqual(safety.check_utterance(line), [], line)
+
+    def test_no_trajectory_line_claims_the_treatment_is_failing(self):
+        """A wide window missed is a fact about dates, not about the drug."""
+        joined = " ".join(observations(self.LATE)).lower()
+        for phrase in ("not working", "failing", "isn't working", "too high", "too low"):
+            self.assertNotIn(phrase, joined)
+
+    def test_every_if_not_met_line_in_the_context_survives_the_filter(self):
+        """The context's own wording must pass the envelope it informs."""
+        for event in load_context()["trajectory"]:
+            line = (
+                f"{event['if_not_met'].rstrip('. ')} — the usual window for this "
+                f"is by week {event['expected_by_week']}, and it is now week 30."
+            )
+            self.assertEqual(safety.check_utterance(line), [], event["id"])
+
+
+class CrossVisitTests(SimpleTestCase):
+    """A second interval must know it is not the first — and the first must not pay.
+
+    Almost every interval Cadence records is somebody's first, and that path
+    has to stay exactly as cheap as it was before cross-visit context existed.
+    When there is a previous brief, the opposite guarantee applies: the call
+    must not open as though the patient had never been through any of this.
+    """
+
+    @staticmethod
+    def _rendered(facts):
+        from capture.interval import as_agent_brief
+
+        return as_agent_brief(facts)
+
+    PREVIOUS_BRIEF = {
+        "agreed": [{"commitment_id": "c1", "text": "Start levothyroxine"}],
+        "did": [
+            {"commitment_id": "c1", "text": "Start levothyroxine", "status": "done"},
+            {"commitment_id": "c2", "text": "Repeat blood test", "status": "not_done"},
+        ],
+        "happened": [{"text": "Sleep got worse", "approx_timing": "around week three"}],
+        "changed": [{"text": "Tiredness eased a little", "direction": "better"}],
+        "open_questions": ["Should I be taking it at night instead?"],
+        "gaps": [],
+    }
+
+    def test_an_interval_with_no_previous_brief_behaves_exactly_as_before(self):
+        """Every caller written before the loop closed still gets what it got."""
+        facts = _facts(today=date(2026, 7, 20))
+        self.assertIsNone(facts.previous_brief)
+        self.assertEqual(facts.prior_visit_dates, [])
+        self.assertNotIn("not their first interval", self._rendered(facts))
+
+    def test_a_previous_brief_tells_the_agent_this_is_not_the_first_interval(self):
+        facts = compute_interval_facts(
+            summary=_summary(),
+            context=load_context(),
+            visit_date=VISIT,
+            today=date(2026, 7, 20),
+            previous_brief=self.PREVIOUS_BRIEF,
+            prior_visit_dates=[date(2026, 3, 2)],
+        )
+        rendered = self._rendered(facts)
+        self.assertIn("This is not their first interval.", rendered)
+        self.assertIn("2026-03-02", rendered)
+
+    def test_what_the_last_interval_left_unfinished_is_carried_forward(self):
+        """A test not done last time is the first thing worth asking about."""
+        facts = compute_interval_facts(
+            summary=_summary(),
+            context=load_context(),
+            visit_date=VISIT,
+            today=date(2026, 7, 20),
+            previous_brief=self.PREVIOUS_BRIEF,
+        )
+        rendered = self._rendered(facts)
+        self.assertIn("Repeat blood test", rendered)
+        self.assertIn("Tiredness eased a little", rendered)
+        self.assertIn("Should I be taking it at night instead?", rendered)
+
+    def test_a_settled_commitment_from_last_time_is_not_carried_as_unfinished(self):
+        facts = compute_interval_facts(
+            summary=_summary(),
+            context=load_context(),
+            visit_date=VISIT,
+            today=date(2026, 7, 20),
+            previous_brief=self.PREVIOUS_BRIEF,
+        )
+        unfinished = next(
+            l for l in self._rendered(facts).splitlines()
+            if "Left unfinished last time" in l
+        )
+        self.assertNotIn("Start levothyroxine", unfinished)

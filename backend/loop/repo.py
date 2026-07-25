@@ -94,6 +94,7 @@ def create_visit(
     organisation_address="",
     transcript,
     summary,
+    previous_brief_id=None,
 ) -> dict:
     sb = get_supabase()
     row = {
@@ -106,6 +107,8 @@ def create_visit(
         "transcript": transcript,
         "summary": summary,
     }
+    if previous_brief_id is not None:
+        row["previous_brief_id"] = previous_brief_id
     return sb.table("visits").insert(row).execute().data[0]
 
 
@@ -119,6 +122,29 @@ def delete_visit(visit_id: str) -> None:
     """Cascades to commitments/outcomes via FK."""
     sb = get_supabase()
     sb.table("visits").delete().eq("id", visit_id).execute()
+
+
+def create_plan(visit_id: str, content: dict, condition_context: str = "") -> dict:
+    """Re-planning an interval replaces its plan — plans.visit_id is unique."""
+    sb = get_supabase()
+    row = {"visit_id": visit_id, "content": content, "condition_context": condition_context}
+    return sb.table("plans").upsert(row, on_conflict="visit_id").execute().data[0]
+
+
+def get_plan_for_visit(visit_id: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("plans").select("*").eq("visit_id", visit_id).execute().data
+    return rows[0] if rows else None
+
+
+def get_latest_plan(condition_id: str) -> dict | None:
+    """The plan for the condition's most recent visit that has one — earlier
+    visits may pre-date planning, so walk back rather than stopping at the first."""
+    for visit in list_visits(condition_id):
+        plan = get_plan_for_visit(visit["id"])
+        if plan:
+            return plan
+    return None
 
 
 def create_commitments(visit_id: str, commitments: list[dict]) -> list[dict]:
@@ -139,6 +165,19 @@ def create_commitments(visit_id: str, commitments: list[dict]) -> list[dict]:
     return sb.table("commitments").insert(rows).execute().data
 
 
+# A commitment is still worth raising on a call while it is in one of these.
+# "pending" is the state before anyone has asked; "not_done" and "partial" are
+# answers that leave the thing outstanding — a blood test the patient has not
+# had yet is exactly what the next call should be chasing. Only "done" and
+# "changed" are settled.
+#
+# This mirrors interval.OPEN_STATUSES, which reasons over check-in JSON rather
+# than the database column and so uses "unknown" where the column says
+# "pending". Filtering on "pending" alone silently dropped every commitment a
+# patient had already said no to, which is precisely the set worth pursuing.
+OPEN_COMMITMENT_STATUSES = ("pending", "not_done", "partial")
+
+
 def get_open_commitments(condition_id: str) -> list[dict]:
     sb = get_supabase()
     visits = sb.table("visits").select("id").eq("condition_id", condition_id).execute().data
@@ -149,7 +188,7 @@ def get_open_commitments(condition_id: str) -> list[dict]:
         sb.table("commitments")
         .select("*")
         .in_("visit_id", visit_ids)
-        .eq("status", "pending")
+        .in_("status", list(OPEN_COMMITMENT_STATUSES))
         .execute()
         .data
     )
@@ -177,9 +216,17 @@ def list_check_ins(condition_id: str) -> list[dict]:
     )
 
 
-def create_check_in(condition_id: str, *, date, transcript, raw) -> dict:
+def create_check_in(
+    condition_id: str, *, date, transcript, raw, covered_item_ids: list[str] | None = None
+) -> dict:
     sb = get_supabase()
-    row = {"condition_id": condition_id, "date": date, "transcript": transcript, "raw": raw}
+    row = {
+        "condition_id": condition_id,
+        "date": date,
+        "transcript": transcript,
+        "raw": raw,
+        "covered_item_ids": covered_item_ids or [],
+    }
     return sb.table("check_ins").insert(row).execute().data[0]
 
 
@@ -223,6 +270,17 @@ def list_briefs(condition_id: str) -> list[dict]:
         .execute()
         .data
     )
+
+
+def get_latest_brief(condition_id: str) -> dict | None:
+    briefs = list_briefs(condition_id)
+    return briefs[0] if briefs else None
+
+
+def get_brief(brief_id: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("briefs").select("*").eq("id", brief_id).execute().data
+    return rows[0] if rows else None
 
 
 def create_brief(condition_id: str, content: dict) -> dict:
