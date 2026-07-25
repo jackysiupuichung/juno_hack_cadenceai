@@ -1,0 +1,25 @@
+# Local virtualenv — the image builds its own.
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets never bake into an image; they arrive as env vars at runtime.
+.env
+.env.local
+
+# Local database. The container gets its own on a volume.
+*.sqlite3
+
+# Large demo assets — these would bloat every build layer.
+demo_consultation.m4a
+files.zip
+
+# Frontend build artefacts, once there is a frontend.
+node_modules/
+dist/
+.next/
+
+.git/
+.gitignore
+*.log
+.DS_Store
