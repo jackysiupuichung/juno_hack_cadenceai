@@ -5,5 +5,6 @@ description = "The patient-side ambient scribe that closes the loop."
 requires-python = ">=3.12"
 dependencies = [
     "elevenlabs>=2.59.0",
+    "httpx>=0.28.1",
     "python-dotenv>=1.2.2",
 ]

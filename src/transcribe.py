@@ -7,16 +7,18 @@ the transcript this produces.
 
 from __future__ import annotations
 
+import mimetypes
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
-from elevenlabs.client import ElevenLabs
 
 load_dotenv()
 
 MODEL_ID = "scribe_v1"
+STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 
 # Clinical vocabulary Scribe would otherwise mangle. Wrong drug names and
 # wrong conditions are the failure mode that matters most here, so bias the
@@ -68,13 +70,20 @@ class Transcript:
         return "\n".join(f"{u.speaker}: {u.text}" for u in self.utterances)
 
 
-def _client() -> ElevenLabs:
+def _api_key() -> str:
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         raise RuntimeError(
             "ELEVENLABS_API_KEY is not set. Copy .env.example to .env and fill it in."
         )
-    return ElevenLabs(api_key=api_key)
+    return api_key
+
+
+def _field(item, name: str, default=None):
+    """Read a field from a dict or an object, whichever the caller passed."""
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
 
 
 def _group_into_utterances(words) -> list[Utterance]:
@@ -88,16 +97,16 @@ def _group_into_utterances(words) -> list[Utterance]:
     for word in words or []:
         # Spacing entries carry no speaker of their own — append to the current
         # utterance so we don't fragment on every gap between words.
-        word_type = getattr(word, "type", "word")
-        text = getattr(word, "text", "") or ""
+        word_type = _field(word, "type", "word")
+        text = _field(word, "text", "") or ""
         if word_type == "spacing":
             if utterances:
                 utterances[-1].text += text
             continue
 
-        speaker = getattr(word, "speaker_id", None) or "speaker_0"
-        start = getattr(word, "start", None)
-        end = getattr(word, "end", None)
+        speaker = _field(word, "speaker_id") or "speaker_0"
+        start = _field(word, "start")
+        end = _field(word, "end")
 
         if utterances and utterances[-1].speaker == speaker:
             current = utterances[-1]
@@ -137,25 +146,41 @@ def transcribe_file(
     if not path.is_file():
         raise FileNotFoundError(f"No audio file at {path}")
 
-    kwargs = {
+    # Posted as multipart rather than through the SDK: the SDK JSON-encodes
+    # `keyterms` into a single form value, which the API rejects (the literal
+    # brackets and quotes read as forbidden characters in one long keyterm).
+    # The API expects one repeated `keyterms` field per term.
+    form: dict[str, object] = {
         "model_id": MODEL_ID,
-        "diarize": True,
-        "tag_audio_events": False,
+        "diarize": "true",
+        "tag_audio_events": "false",
         "timestamps_granularity": "word",
-        "keyterms": keyterms if keyterms is not None else VISIT_KEYTERMS,
     }
     if num_speakers is not None:
-        kwargs["num_speakers"] = num_speakers
+        form["num_speakers"] = str(num_speakers)
     if language_code is not None:
-        kwargs["language_code"] = language_code
+        form["language_code"] = language_code
+
+    # A list value makes httpx emit one form field per item.
+    form["keyterms"] = list(keyterms if keyterms is not None else VISIT_KEYTERMS)
+
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
     with path.open("rb") as audio:
-        result = _client().speech_to_text.convert(file=audio, **kwargs)
+        response = httpx.post(
+            STT_URL,
+            headers={"xi-api-key": _api_key()},
+            files={"file": (path.name, audio, content_type)},
+            data=form,
+            timeout=600,
+        )
+    response.raise_for_status()
+    result = response.json()
 
     return Transcript(
-        text=getattr(result, "text", "") or "",
-        utterances=_group_into_utterances(getattr(result, "words", None)),
-        language_code=getattr(result, "language_code", None),
+        text=_field(result, "text", "") or "",
+        utterances=_group_into_utterances(_field(result, "words")),
+        language_code=_field(result, "language_code"),
     )
 
 
