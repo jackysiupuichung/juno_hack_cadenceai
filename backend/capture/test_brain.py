@@ -15,7 +15,8 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from capture import safety
+from capture import caretaker, safety
+from capture.caretaker import CaretakerContext
 from capture.interval import (
     IntervalError,
     commitment_id,
@@ -1874,3 +1875,222 @@ class ScoreCaptureTests(SimpleTestCase):
             _facts(today=date(2026, 7, 20)), load_context(), None, None, None, []
         )
         self.assertNotIn("=== THE SCORED QUESTIONS ===", prompt)
+
+
+class CaretakerContextTests(SimpleTestCase):
+    """The standing facts about the person, and what they do to a call."""
+
+    def test_a_patient_nothing_is_known_about_renders_nothing(self):
+        # Not a blank heading: an agent shown an empty section finds something
+        # to do with it, which on a health call is a question nobody asked for.
+        self.assertEqual(caretaker.as_agent_brief(CaretakerContext()), "")
+
+    def test_a_context_with_only_a_call_preference_is_still_empty(self):
+        # The preference always has a value, so counting it as content would
+        # make every context non-empty and defeat the check entirely.
+        self.assertTrue(CaretakerContext(call_length_preference="brief").is_empty)
+
+    def test_the_preferred_name_is_what_the_agent_is_told_to_use(self):
+        brief = caretaker.as_agent_brief(CaretakerContext(preferred_name="Marsh"))
+        self.assertIn("Marsh", brief)
+
+    def test_a_missing_preferred_name_falls_back_to_the_record(self):
+        self.assertEqual(CaretakerContext().address_as("Marshall"), "Marshall")
+
+    def test_with_neither_name_there_is_nothing_to_call_them(self):
+        # "" rather than a placeholder, because a placeholder gets read aloud.
+        self.assertEqual(CaretakerContext().address_as(), "")
+
+    def test_call_length_governs_how_much_the_call_attempts(self):
+        self.assertEqual(CaretakerContext(call_length_preference="brief").max_call_items, 2)
+        self.assertEqual(CaretakerContext(call_length_preference="unhurried").max_call_items, 6)
+
+    def test_an_unrecognised_preference_falls_back_rather_than_crashing(self):
+        self.assertEqual(CaretakerContext(call_length_preference="???").max_call_items, 4)
+
+    def test_medication_barriers_forbid_the_agent_solving_them(self):
+        # The load-bearing one. An agent told "cannot swallow tablets" and left
+        # alone suggests crushing them, which is a change to how medication is
+        # taken — squarely across the CDS line this product does not cross.
+        brief = caretaker.as_agent_brief(
+            CaretakerContext(medication_barriers=["cannot swallow tablets"])
+        )
+        self.assertIn("cannot swallow tablets", brief)
+        self.assertIn("Do not suggest a way around it", brief)
+
+    def test_a_supporter_without_consent_is_marked_as_not_to_be_told(self):
+        brief = caretaker.as_agent_brief(
+            CaretakerContext(supporter_name="Ada", supporter_relationship="daughter")
+        )
+        self.assertIn("NOT agreed", brief)
+        self.assertIn("Do not discuss their care", brief)
+
+    def test_a_supporter_with_consent_says_so(self):
+        brief = caretaker.as_agent_brief(
+            CaretakerContext(
+                supporter_name="Ada",
+                supporter_relationship="daughter",
+                supporter_may_be_contacted=True,
+            )
+        )
+        self.assertIn("have agreed", brief)
+        self.assertNotIn("NOT agreed", brief)
+
+    def test_consent_cannot_be_stored_without_naming_the_person(self):
+        # The failure this guards is disclosure to an unspecified third party:
+        # a consent flag surviving the deletion of the name it referred to.
+        row = caretaker.to_row(
+            CaretakerContext(supporter_name="", supporter_may_be_contacted=True), "p1"
+        )
+        self.assertFalse(row["supporter_may_be_contacted"])
+
+    def test_a_context_round_trips_through_a_row(self):
+        original = CaretakerContext(
+            preferred_name="Marsh",
+            contact_window="after 2pm",
+            call_length_preference="brief",
+            living_situation="lives alone",
+            access_needs=["hard of hearing"],
+            medication_barriers=["cannot swallow tablets"],
+            priorities=["being able to work"],
+            supporter_name="Ada",
+            supporter_relationship="daughter",
+            supporter_may_be_contacted=True,
+            notes="prefers text first",
+        )
+        self.assertEqual(caretaker.from_row(caretaker.to_row(original, "p1")), original)
+
+    def test_a_missing_row_is_an_empty_context_not_a_crash(self):
+        self.assertTrue(caretaker.from_row(None).is_empty)
+
+
+class CaretakerPromptTests(SimpleTestCase):
+    """Where the person appears in the agent's prompt, and when they do not."""
+
+    def test_the_person_reaches_the_prompt(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None, None,
+            CaretakerContext(preferred_name="Marsh"),
+        )
+        self.assertIn("=== WHO YOU ARE SPEAKING TO ===", prompt)
+        self.assertIn("Marsh", prompt)
+
+    def test_the_person_is_stated_before_the_interval(self):
+        # Who is being spoken to governs the whole call — how long to stay,
+        # what to accommodate — so it must be read before the agenda has
+        # already settled how the call will go.
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None, None,
+            CaretakerContext(preferred_name="Marsh"),
+        )
+        self.assertLess(
+            prompt.index("=== WHO YOU ARE SPEAKING TO ==="),
+            prompt.index("=== THIS INTERVAL ==="),
+        )
+
+    def test_an_unknown_patient_gets_no_section(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None, None,
+            CaretakerContext(),
+        )
+        self.assertNotIn("=== WHO YOU ARE SPEAKING TO ===", prompt)
+
+    def test_omitting_the_caretaker_entirely_behaves_as_before(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None, None
+        )
+        self.assertNotIn("=== WHO YOU ARE SPEAKING TO ===", prompt)
+
+
+class MedicationRowMappingTests(SimpleTestCase):
+    """The row mapping. Where a medication thread would silently lose state.
+
+    These matter because the mapping is the only thing standing between "the
+    patient told us on Tuesday" and week 6 asking the same opening question for
+    the sixth time. A field dropped here is invisible everywhere else.
+    """
+
+    def _med(self, **overrides):
+        from capture.medication import Medication, Source, Value
+
+        base = dict(
+            name=Value("levothyroxine", Source.CLINICIAN),
+            dosage=Value("25mcg", Source.CLINICIAN),
+            frequency=Value("once daily", Source.CLINICIAN),
+            duration=Value("", Source.CLINICIAN),
+            instructions=Value("on an empty stomach", Source.CLINICIAN),
+        )
+        base.update(overrides)
+        return Medication(**base)
+
+    def test_a_medication_round_trips_through_a_row(self):
+        from capture.medication import Adherence, Collection
+        from loop.medication_repo import from_row, to_row
+
+        original = self._med(
+            collection=Collection.COLLECTED,
+            first_dose_taken=True,
+            reminder_time="07:30",
+            adherence=Adherence.MISSED_ONCE,
+            label_seen=True,
+            last_chased_day=3,
+            notes=["the label says 50mcg; your clinician said 25mcg"],
+        )
+        self.assertEqual(from_row(to_row(original, "v1")), original)
+
+    def test_provenance_survives_the_round_trip(self):
+        # The whole point of the type: a label value that comes back as a
+        # clinician value is exactly the confusion Source exists to prevent.
+        from capture.medication import Confirmation, Source, Value
+        from loop.medication_repo import from_row, to_row
+
+        original = self._med(
+            dosage=Value("50mcg", Source.LABEL, Confirmation.PENDING)
+        )
+        restored = from_row(to_row(original, "v1"))
+        self.assertEqual(restored.dosage.source, Source.LABEL)
+        self.assertEqual(restored.dosage.confirmation, Confirmation.PENDING)
+        self.assertFalse(restored.dosage.is_usable)
+
+    def test_never_asked_and_answered_no_stay_different_facts(self):
+        # Only one of these is worth reporting to a doctor. Collapsing the
+        # tri-state would put a finding in the brief no patient ever said.
+        from loop.medication_repo import from_row, to_row
+
+        never = from_row(to_row(self._med(first_dose_taken=None), "v1"))
+        said_no = from_row(to_row(self._med(first_dose_taken=False), "v1"))
+        self.assertIsNone(never.first_dose_taken)
+        self.assertIs(said_no.first_dose_taken, False)
+
+    def test_a_gap_stays_a_gap(self):
+        # Nothing in persistence completes a value the consultation left vague.
+        from loop.medication_repo import from_row, to_row
+
+        restored = from_row(to_row(self._med(), "v1"))
+        self.assertFalse(restored.duration.is_stated)
+        self.assertEqual(restored.duration.text, "")
+
+    def test_an_unquantified_dose_round_trips_as_a_gap(self):
+        from capture.medication import Source, Value
+        from loop.medication_repo import from_row, to_row
+
+        original = self._med(dosage=Value("a very low dose", Source.CLINICIAN))
+        restored = from_row(to_row(original, "v1"))
+        self.assertIn("dosage", restored.gaps)
+
+    def test_an_empty_row_produces_a_medication_of_pure_gaps(self):
+        # PostgREST omits nulls; every field defaulting is what stops a sparse
+        # row becoming a crash mid-call.
+        from loop.medication_repo import from_row
+
+        restored = from_row({})
+        self.assertEqual(restored.gaps, ["name", "dosage", "frequency"])
+        self.assertFalse(restored.reminders_ready)

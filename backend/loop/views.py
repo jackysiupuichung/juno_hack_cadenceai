@@ -5,6 +5,7 @@ the screens these serve."""
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date as date_cls
 from datetime import timedelta
 
@@ -14,7 +15,9 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from capture import caretaker
 from capture import events as ev
+from capture import medication
 from capture import safety
 from capture.interval import (
     IntervalError,
@@ -29,7 +32,7 @@ from capture.plan import as_agent_brief as plan_as_agent_brief
 from capture.plan import coverage as plan_coverage
 from capture.redflags import evaluate_flags
 
-from . import repo
+from . import caretaker_repo, medication_repo, repo
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
@@ -229,6 +232,130 @@ def patient(request):
         return Response(updated)
 
     return Response(repo.get_or_create_patient())
+
+
+# --- The caretaker's standing context ----------------------------------------
+
+
+# Only these may be written from the client. The list is explicit rather than
+# "whatever was sent" because this row is upserted whole: an unlisted key would
+# be a silent no-op at best, and at worst the shape the database rejects
+# mid-call. Notably absent is anything clinical — this table holds
+# circumstances, and a clinical field arriving here would be a design error
+# worth failing on rather than storing.
+CARETAKER_FIELDS = (
+    "preferred_name",
+    "contact_window",
+    "call_length_preference",
+    "living_situation",
+    "access_needs",
+    "medication_barriers",
+    "priorities",
+    "supporter_name",
+    "supporter_relationship",
+    "supporter_may_be_contacted",
+    "notes",
+)
+
+
+@api_view(["GET", "PUT"])
+def caretaker_context(request):
+    """What the caretaker knows about the person before it rings.
+
+    GET always returns a context, empty for a patient nothing is known about —
+    the client renders a blank form either way, and a 404 would make it handle
+    two representations of the same thing.
+
+    PUT merges rather than replaces. The client edits one field at a time, and a
+    replace would mean every partial save silently cleared everything the
+    patient had told us on a previous screen.
+    """
+    p = repo.get_or_create_patient()
+    current = caretaker_repo.get_caretaker_context(p["id"])
+
+    if request.method == "GET":
+        return Response(caretaker.to_row(current, p["id"]))
+
+    updates = {k: v for k, v in request.data.items() if k in CARETAKER_FIELDS}
+    unknown = [k for k in request.data if k not in CARETAKER_FIELDS]
+    if unknown:
+        return Response(
+            {"error": f"unknown fields: {', '.join(sorted(unknown))}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    preference = updates.get("call_length_preference")
+    if preference is not None and preference not in caretaker.CALL_LENGTH_ITEMS:
+        return Response(
+            {
+                "error": "call_length_preference must be one of "
+                + ", ".join(caretaker.CALL_LENGTH_ITEMS)
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    merged = replace(current, **updates)
+    return Response(caretaker_repo.save_caretaker_context(p["id"], merged))
+
+
+# --- The medication thread ---------------------------------------------------
+
+
+@api_view(["GET"])
+def medications(request):
+    """The medication thread for a condition, as the calls have left it.
+
+    Returns the stored rows plus what the thread still needs today, so a client
+    can show the same outstanding items the next call will raise rather than
+    reimplementing the sequencing rules that decide them.
+    """
+    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    if error:
+        return error
+
+    rows = medication_repo.list_medications(condition["id"])
+    meds = [medication_repo.from_row(row) for row in rows]
+
+    # Days since the consultation that opened this interval. Without a visit
+    # there is no clock, and no medication either, so zero is only ever reached
+    # with an empty list.
+    visits = repo.list_visits(condition["id"])
+    day = (
+        medication.days_since(
+            date_cls.fromisoformat(visits[-1]["date"][:10]), date_cls.today()
+        )
+        if visits
+        else 0
+    )
+
+    return Response(
+        {
+            "medications": [
+                {
+                    **row,
+                    # Computed, never stored: a gap closes the moment a
+                    # confirmed value arrives, and a stored flag would go stale.
+                    "gaps": med.gaps,
+                    "is_complete": med.is_complete,
+                    "needs_label_photo": med.needs_label_photo,
+                    "pending_confirmation": med.pending_confirmation,
+                    "reminders_ready": med.reminders_ready,
+                    "daily_reminder": medication.daily_reminder(med),
+                }
+                for row, med in zip(rows, meds)
+            ],
+            "day": day,
+            "due_tasks": [
+                {
+                    "kind": t.kind,
+                    "medication": t.medication,
+                    "intent": t.intent,
+                    "priority": t.priority,
+                }
+                for t in medication.due_tasks(meds, day=day)
+            ],
+        }
+    )
 
 
 # --- Conditions ("My Conditions" home) ---------------------------------------
@@ -446,6 +573,15 @@ def summarise(request):
     )
     commitments = repo.create_commitments(visit["id"], summary.get("commitments", []))
 
+    # The medication thread, seeded from what the consultation prescribed. Every
+    # field is clinician-sourced and confirmed here; the gaps ("a very low
+    # dose") are stored as gaps, and closing them is the thread's own work over
+    # the following calls. Empty for a consultation that prescribed nothing,
+    # which switches the thread off rather than leaving it half-open.
+    prescribed = medication_repo.sync_from_summary(
+        visit["id"], medication.from_summary(summary)
+    )
+
     # The caretaker plans the interval this visit just opened, while the visit
     # is fresh and nothing is waiting on it. A failure here must not lose the
     # visit — the summary and commitments are the durable artifact, and a
@@ -496,6 +632,7 @@ def summarise(request):
         {
             **visit,
             "commitments": commitments,
+            "medications": prescribed,
             "plan": (plan_row or {}).get("content"),
             "plan_error": plan_error,
             "events": created_events,
@@ -564,12 +701,30 @@ def checkin_context(request):
 
     plan = _load_plan(condition["id"])
 
+    # The medication thread as the calls have left it, not as the consultation
+    # described it. This is the difference between week 6 knowing the tablet was
+    # collected on Tuesday and taken at 7:30 every morning, and week 6 opening
+    # with "have you collected it yet?" for the sixth time.
+    medications = medication_repo.load_medications(condition["id"])
+    day = medication.days_since(facts.visit_date, date_cls.today())
+
+    # Who is being rung. Hangs off the patient rather than the condition — it is
+    # the same person on every call about every condition they have.
+    person = caretaker_repo.get_caretaker_context(settings.PATIENT_ID)
+
     return Response(
         {
             "week": facts.week,
+            "day": day,
             "visit_date": facts.visit_date.isoformat(),
             "is_first_check_in": facts.is_first_check_in,
             "interval_brief": as_agent_brief(facts),
+            # Empty when nothing was prescribed, and when nothing is known about
+            # the patient. An agent handed an empty section finds something to
+            # ask about it, so both are omitted rather than sent blank.
+            "medication_brief": medication.as_agent_brief(medications, day=day),
+            "caretaker_brief": caretaker.as_agent_brief(person),
+            "max_call_items": person.max_call_items,
             # The agenda decided when the visit was summarised, filtered to
             # what is due this week. Empty when the interval was never planned,
             # which the agent handles by reasoning from the context alone.

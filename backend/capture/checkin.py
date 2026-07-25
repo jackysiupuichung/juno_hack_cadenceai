@@ -43,6 +43,8 @@ import openai
 from dotenv import load_dotenv
 
 from . import safety
+from .caretaker import CaretakerContext
+from .caretaker import as_agent_brief as caretaker_as_agent_brief
 from .interval import IntervalFacts, as_agent_brief, watch_for_vocabulary
 from .medication import Medication
 from .medication import as_agent_brief as medication_as_agent_brief
@@ -348,8 +350,9 @@ def _build_system_prompt(
     medications: list[Medication] | None = None,
     day: int | None = None,
     series: list[Series] | None = None,
+    caretaker: CaretakerContext | None = None,
 ) -> str:
-    """The standing instructions, the interval, the agenda, and the context.
+    """The standing instructions, the person, the interval, the agenda, and the context.
 
     The context goes in as JSON rather than prose: the agent needs to reason
     over structured fields (ask_from_week, cluster_threshold, links_to) and
@@ -371,6 +374,18 @@ def _build_system_prompt(
 
     is_first_contact = day is not None and day <= FIRST_CONTACT_MAX_DAY
     standing = FIRST_CONTACT_PROMPT if is_first_contact else SYSTEM_PROMPT
+
+    # Who is being spoken to, before anything about what to ask them. It is
+    # first because it governs the whole call rather than any one question —
+    # how long to stay, what name to use, what not to press on — and an agent
+    # that reads it after the agenda has already decided how the call will go.
+    # Omitted entirely for a patient nothing is known about, which is an
+    # ordinary call and not a degraded one.
+    person = ""
+    if caretaker is not None:
+        rendered = caretaker_as_agent_brief(caretaker)
+        if rendered:
+            person = f"=== WHO YOU ARE SPEAKING TO ===\n{rendered}\n\n"
 
     agenda = ""
     if plan is not None:
@@ -409,6 +424,7 @@ def _build_system_prompt(
 
     return (
         f"{standing}\n\n"
+        f"{person}"
         f"=== THIS INTERVAL ===\n{as_agent_brief(facts)}\n\n"
         f"{meds}"
         f"{agenda}"
@@ -453,6 +469,7 @@ def run_turn(
     medications: list[Medication] | None = None,
     day: int | None = None,
     series: list[Series] | None = None,
+    caretaker: CaretakerContext | None = None,
 ) -> TurnDecision:
     """Ask the agent for its next move.
 
@@ -472,11 +489,14 @@ def run_turn(
         series: The scored symptoms and whatever they have scored so far. The
             questions are asked verbatim; the prior points are for the agent's
             orientation and are never read back to the patient.
+        caretaker: The standing facts about the person — name, when they can
+            talk, how much call they can take, what to accommodate. Omitted for
+            a patient nothing is known about, which produces an ordinary call.
 
     Returns:
         A TurnDecision whose `say` has already passed the safety filter.
     """
-    system = _build_system_prompt(facts, context, plan, medications, day, series)
+    system = _build_system_prompt(facts, context, plan, medications, day, series, caretaker)
     schema = turn_schema(context)
 
     opening = (
@@ -559,6 +579,7 @@ def run_check_in(
     medications: list[Medication] | None = None,
     day: int | None = None,
     series: list[Series] | None = None,
+    caretaker: CaretakerContext | None = None,
 ) -> CheckIn:
     """Run a whole call and return the record the brief will read.
 
@@ -568,9 +589,10 @@ def run_check_in(
     call, because the cluster that matters most builds one symptom at a time
     across calls weeks apart.
 
-    `day` selects the day-after first contact when it is 0 or 1, and
-    `medications` carries the prescription thread; both are optional, and an
-    interval with neither behaves exactly as it did before either existed.
+    `day` selects the day-after first contact when it is 0 or 1,
+    `medications` carries the prescription thread, and `caretaker` carries what
+    is known about the person being rung. All three are optional, and an
+    interval with none of them behaves exactly as it did before they existed.
     """
     history: list[dict] = []
     transcript: list[dict] = []
@@ -611,6 +633,7 @@ def run_check_in(
             medications=medications,
             day=day,
             series=series,
+            caretaker=caretaker,
         )
         usage["input_tokens"] += decision.usage.get("input_tokens", 0)
         usage["output_tokens"] += decision.usage.get("output_tokens", 0)
