@@ -258,6 +258,13 @@ Rules:
 - Answer using ONLY the transcript and summary provided. Do not use outside
   medical knowledge, and do not add advice, dosing guidance, or recommendations
   that are not already in the record.
+- Attribute every clinical statement to whoever said it. Write "your doctor
+  said your thyroid levels are low", never a bare "your thyroid levels are
+  low" — you are reporting an appointment, not making the finding yourself.
+  The attribution is what keeps this a record rather than a diagnosis.
+- Stop at what was said. Do not explain the mechanism behind a symptom, do not
+  say what a result means, and do not extend the doctor's reasoning past where
+  they left it, even when the extension seems obvious.
 - If the record does not contain the answer, say so plainly rather than
   guessing — set "grounded" to false.
 - Quote or closely paraphrase the record where possible.

@@ -119,7 +119,29 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
-def check_utterance(text: str, context: dict | None = None) -> list[str]:
+# Sentences that hand a clinical statement back to the patient as something
+# their clinician said, rather than asserting it. "Your thyroid levels are low"
+# is a diagnosis; "the doctor said your thyroid levels are low" is a record of
+# an appointment — and giving that record back is the entire point of a
+# patient-side scribe. The regexes cannot tell those apart, because the
+# difference is the attribution and not the claim.
+#
+# Only honoured where the surrounding text IS a record, which is why it is
+# opt-in per caller rather than always on. The check-in agent never gets it: it
+# is composing live speech, so "the doctor said" from its mouth is a claim
+# about a conversation it did not witness.
+_ATTRIBUTED = re.compile(
+    r"\b(?:(?:your|the)\s+(?:doctor|gp|clinician|consultant|specialist|nurse)|they)\s+"
+    r"(?:\w+\s+){0,3}?"
+    r"(?:said|told|explained|mentioned|noted|diagnosed|advised|reported|"
+    r"described|confirmed|wrote|asked|wants?|suggested|recommended)\b",
+    re.IGNORECASE,
+)
+
+
+def check_utterance(
+    text: str, context: dict | None = None, *, allow_attributed: bool = False
+) -> list[str]:
     """Which prohibitions, if any, this sentence breaks.
 
     Args:
@@ -127,6 +149,10 @@ def check_utterance(text: str, context: dict | None = None) -> list[str]:
         context: The disease context. Accepted so callers can pass it
             uniformly; the patterns are condition-independent, and the
             context's own prohibited_outputs are what they were written from.
+        allow_attributed: Treat clinical statements as clean when they are
+            plainly attributed to the clinician. Set only by callers whose
+            whole output is a record of what was said — the visit chatbot —
+            never by anything composing speech of its own.
 
     Returns:
         Violation reasons, deduped and ordered. Empty means the line is clean.
@@ -134,9 +160,24 @@ def check_utterance(text: str, context: dict | None = None) -> list[str]:
     if not text or not text.strip():
         return []
 
+    # Recommending a change stays prohibited however it is dressed. "The doctor
+    # said you should increase it" is either already in the record, in which
+    # case the record is the safe place to read it, or it is invented — and an
+    # invented instruction that arrives wearing the doctor's authority is worse
+    # than an unattributed one, not better.
+    always = {
+        "suggests a change to the dose or medication",
+        "recommends a test or referral the doctor did not raise",
+    }
+
     reasons: list[str] = []
+    attributed = allow_attributed and _ATTRIBUTED.search(text) is not None
     for reason, pattern in PATTERNS:
-        if pattern.search(text) and reason not in reasons:
+        if reason in reasons:
+            continue
+        if pattern.search(text):
+            if attributed and reason not in always:
+                continue
             reasons.append(reason)
     return reasons
 

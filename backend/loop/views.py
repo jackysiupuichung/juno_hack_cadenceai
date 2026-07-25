@@ -271,8 +271,13 @@ def ask(request):
     # backstop applies: a question like "should I take more?" invites exactly
     # the sentence that crosses the line. Fails closed to the fallback, and
     # says so, rather than silently returning something weaker than was asked.
+    # This endpoint reads a record back to the patient, so a clinical statement
+    # attributed to their clinician is the answer, not a violation — "the
+    # doctor said your thyroid levels are low" is what the appointment was.
+    # Unattributed clinical claims, and anything recommending a change, are
+    # still caught.
     answer = result.get("answer", "")
-    if safety.check_utterance(answer):
+    if safety.check_utterance(answer, allow_attributed=True):
         result["answer"] = (
             "That one is for your doctor — it is not something I can answer "
             "from this record."
