@@ -15,7 +15,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from capture import caretaker, safety
+from capture import caretaker, medication, safety
 from capture.caretaker import CaretakerContext
 from capture.interval import (
     IntervalError,
@@ -2094,3 +2094,184 @@ class MedicationRowMappingTests(SimpleTestCase):
         restored = from_row({})
         self.assertEqual(restored.gaps, ["name", "dosage", "frequency"])
         self.assertFalse(restored.reminders_ready)
+
+
+class SyntheticIntervalTests(SimpleTestCase):
+    """The seeded 12-week interval, replayed without a database.
+
+    seed_demo_interval writes this to Supabase, which cannot run here. What can
+    run is everything that makes the fixture worth seeding: that its commitment
+    texts match the summary it claims to be about, that its symptom mentions use
+    phrases the disease context actually names, and that replaying its calls in
+    order produces the medication thread and the fired cluster it says it does.
+
+    A fixture that drifts from the schema it feeds is worse than no fixture: it
+    seeds a demo that looks right and is not.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.interval = json.loads((FIXTURES / "demo_interval.json").read_text())
+        cls.summary = _summary()
+        cls.context = load_context()
+
+    def test_every_outcome_names_a_commitment_the_summary_actually_contains(self):
+        # The join the seed does by text. A drifted string here means an outcome
+        # silently skipped and a brief quietly missing a line.
+        texts = {c["text"] for c in self.summary["commitments"]}
+        for call in self.interval["check_ins"]:
+            for outcome in call["raw"]["outcomes"]:
+                self.assertIn(outcome["commitment_text"], texts)
+
+    def test_every_mention_uses_a_phrase_the_context_names(self):
+        # A phrase the context does not name cannot enter the vocabulary, so the
+        # count downstream never sees it and the flag never fires.
+        vocabulary = set(watch_for_vocabulary(self.context))
+        for call in self.interval["check_ins"]:
+            for mention in call["symptom_mentions"]:
+                self.assertIn(mention["watch_for"], vocabulary)
+
+    def test_every_mention_names_a_real_flag(self):
+        flag_ids = {f["id"] for f in self.context["red_flags"]}
+        for call in self.interval["check_ins"]:
+            for mention in call["symptom_mentions"]:
+                self.assertIn(mention["flag_id"], flag_ids)
+
+    def test_the_calls_are_in_chronological_order(self):
+        days = [c["day"] for c in self.interval["check_ins"]]
+        self.assertEqual(days, sorted(days))
+
+    def test_no_symptom_is_dated_after_the_call_that_reported_it(self):
+        # occurred_at and recorded_at are separate for a reason; a symptom that
+        # began after the call reporting it would be incoherent.
+        for call in self.interval["check_ins"]:
+            for event in call["events"]:
+                self.assertLessEqual(event["occurred_at_day"], call["day"])
+
+    def test_no_flag_fires_before_the_cluster_assembles(self):
+        # One symptom is not a cluster. A fixture that fired at week 9 would be
+        # demonstrating a false positive.
+        mentions = []
+        for call in self.interval["check_ins"]:
+            if call["week"] >= 11:
+                break
+            mentions.extend({**m, "week": call["week"]} for m in call["symptom_mentions"])
+        self.assertEqual(evaluate_flags(self.context, mentions, week=9), [])
+
+    def test_the_cluster_assembles_by_the_end_of_the_interval(self):
+        # The catch the product exists for: two signs, two weeks apart, neither
+        # connected to the medication by the patient.
+        mentions = []
+        for call in self.interval["check_ins"]:
+            mentions.extend({**m, "week": call["week"]} for m in call["symptom_mentions"])
+        fired = evaluate_flags(self.context, mentions, week=11)
+        self.assertIn(
+            self.interval["expected_brief_shape"]["cluster"]["flag_id"],
+            [f.flag_id for f in fired],
+        )
+
+    def test_the_cluster_is_built_from_more_than_one_call(self):
+        weeks = {
+            call["week"]
+            for call in self.interval["check_ins"]
+            if call["symptom_mentions"]
+        }
+        self.assertGreater(len(weeks), 1)
+
+
+class SyntheticMedicationThreadTests(SimpleTestCase):
+    """Replaying the interval's medication updates, call by call."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.interval = json.loads((FIXTURES / "demo_interval.json").read_text())
+
+    def _replay(self):
+        from loop.management.commands.seed_demo_interval import Command
+
+        command = Command()
+        med = medication.from_summary(_summary())[0]
+        for call in self.interval["check_ins"]:
+            med = command._apply(med, call.get("medication_updates", {}))
+        return med
+
+    def test_the_consultation_leaves_the_dose_as_a_gap(self):
+        # "a very low dose" is authoritative and unusable at the same time —
+        # the exact case the label exists to resolve.
+        med = medication.from_summary(_summary())[0]
+        self.assertIn("dosage", med.gaps)
+
+    def test_replaying_the_interval_closes_the_dose_gap(self):
+        self.assertNotIn("dosage", self._replay().gaps)
+
+    def test_the_label_disagreement_is_recorded_rather_than_resolved(self):
+        # The clinician stated a frequency and the label prints a different one.
+        # Cadence does not decide which is right; it hands the patient the
+        # discrepancy to raise.
+        med = self._replay()
+        self.assertTrue(med.notes)
+        self.assertTrue(any("label" in note.lower() for note in med.notes))
+
+    def test_the_clinicians_own_words_are_never_overwritten_by_the_label(self):
+        from capture.medication import Source
+
+        med = self._replay()
+        self.assertEqual(med.frequency.source, Source.CLINICIAN)
+
+    def test_the_fixture_states_the_end_state_the_replay_actually_produces(self):
+        # The fixture documents where the thread lands so a reviewer can check
+        # it without running anything. That claim is worth nothing if it drifts
+        # from the code, so it is asserted rather than trusted.
+        from loop.medication_repo import to_row
+
+        claimed = self.interval["medication_thread"]["expected_end_state"]
+        actual = to_row(self._replay(), "v1")
+        for field, expected in claimed.items():
+            if field.startswith("_"):
+                continue
+            self.assertEqual(actual[field], expected, msg=f"field {field}")
+
+    def test_the_thread_ends_ready_to_remind(self):
+        # Fields plus a time. Without both, a reminder would have to name a dose
+        # it does not know.
+        self.assertTrue(self._replay().reminders_ready)
+
+    def test_the_reminder_names_the_dose_the_label_gave(self):
+        self.assertIn("25 micrograms", medication.daily_reminder(self._replay()))
+
+    def test_adherence_is_current_state_not_interval_history(self):
+        # The patient missed doses at week 5 and was back on it by week 9, so
+        # the field says every_day — it is a snapshot, and the last call wins.
+        # The missed fortnight is not lost: it lives in the events chronology,
+        # dated when it happened rather than when it was mentioned. That split
+        # is deliberate, and a brief that read adherence alone would miss it.
+        from capture.medication import Adherence
+
+        self.assertIs(self._replay().adherence, Adherence.EVERY_DAY)
+
+    def test_the_missed_fortnight_survives_in_the_chronology(self):
+        missed = [
+            event
+            for call in self.interval["check_ins"]
+            for event in call["events"]
+            if "missed" in event["label"].lower()
+        ]
+        self.assertTrue(missed)
+        # Dated to when it happened, not to the call that surfaced it.
+        self.assertLess(missed[0]["occurred_at_day"], 35)
+
+    def test_observations_report_facts_rather_than_grading_them(self):
+        lines = medication.observations([self._replay()])
+        self.assertFalse(any("poor" in line.lower() for line in lines))
+        self.assertFalse(any("good" in line.lower() for line in lines))
+
+    def test_the_thread_accumulates_rather_than_resetting(self):
+        # The bug the medications table was added to fix: without persistence
+        # the thread rebuilds from the summary and week 12 knows nothing.
+        replayed = self._replay()
+        fresh = medication.from_summary(_summary())[0]
+        self.assertNotEqual(replayed.collection, fresh.collection)
+        self.assertTrue(replayed.reminder_time)
+        self.assertFalse(fresh.reminder_time)

@@ -1,0 +1,353 @@
+{
+  "_comment": [
+    "A synthetic 12-week interval for the demo, written against the existing",
+    "demo consultation (fixtures/demo_consultation.summary.json) so it is the",
+    "same patient, the same five commitments, and the same 'very low dose' gap.",
+    "",
+    "The point of this file is that the brief must be MADE OF interval data. A",
+    "brief assembled from one two-week check-in where everything went fine is a",
+    "summary with extra steps. So this interval is deliberately mixed: the",
+    "tablet gets collected late, the dose gap is closed by a pharmacy label that",
+    "disagrees with what the patient remembers being told, adherence slips in",
+    "the middle weeks for an ordinary reason, the blood test silently does not",
+    "happen, and one over-replacement symptom appears at week 9 and a second at",
+    "week 11 — which is the cluster the whole product exists to catch, assembled",
+    "one call at a time exactly as it would be in life.",
+    "",
+    "Nothing here is a clinical judgement. Every entry is something a patient",
+    "said or a date that passed. The interpretation stays where it belongs: with",
+    "the doctor reading the brief."
+  ],
+
+  "caretaker_context": {
+    "_comment": "The person, not the condition. None of this is in any visit summary because no clinician dictates it.",
+    "preferred_name": "Sam",
+    "contact_window": "mornings are bad — I'm slow to get going. After 2pm is fine.",
+    "call_length_preference": "brief",
+    "living_situation": "Lives alone. Sister visits at weekends.",
+    "access_needs": [
+      "slightly hard of hearing on the phone — speak up and don't rush"
+    ],
+    "medication_barriers": [
+      "struggles to swallow larger tablets",
+      "no fixed morning routine, so an empty-stomach dose is easy to miss"
+    ],
+    "priorities": [
+      "being able to get through a working day without needing to lie down",
+      "not adding more appointments than necessary"
+    ],
+    "supporter_name": "Jo",
+    "supporter_relationship": "sister",
+    "supporter_may_be_contacted": false,
+    "notes": "Missed two previous appointments because of transport. Worth confirming the date rather than assuming it is in the diary."
+  },
+
+  "medication_thread": {
+    "_comment": [
+      "How the medication row should stand at the END of the interval, after",
+      "every call below has been applied. The seed command replays the calls in",
+      "order rather than writing this directly — this block is here so the",
+      "expected end state is reviewable in one place.",
+      "",
+      "The dosage is the interesting field: the consultation said 'very low",
+      "dose', which is authoritative and unusable at the same time. The label",
+      "closes it, and the label disagrees with what the patient remembers. That",
+      "disagreement is recorded as a note for the patient to raise, not resolved",
+      "— it is not Cadence's place to decide which is right."
+    ],
+    "expected_end_state": {
+      "_source_note": "Only the dosage is label-sourced, because only the dosage was a gap. The clinician stated a name and a frequency, so the label does not overwrite either — it records the disagreement as a note and leaves the clinician's words standing. Three notes result, and each is a real thing worth raising at the next appointment.",
+      "name": "thyroid replacement medication",
+      "name_source": "clinician",
+      "dosage": "25 micrograms",
+      "dosage_source": "label",
+      "dosage_confirmation": "confirmed",
+      "frequency": "every day, ideally around the same time each day",
+      "frequency_source": "clinician",
+      "collection": "collected",
+      "first_dose_taken": true,
+      "reminder_time": "14:30",
+      "adherence": "every_day",
+      "_adherence_note": "A snapshot, not a history: they missed three or four doses around week 4 and were back on it by week 9, so the field reads every_day. The missed fortnight is not lost — it is an event, dated to when it happened rather than to the call that surfaced it. A brief that read this field alone would miss it, which is why the chronology exists.",
+      "label_seen": true,
+      "notes": [
+        "The label says name is \"levothyroxine\"; your clinician said \"thyroid replacement medication\". Worth checking with them which to follow.",
+        "The label says frequency is \"one tablet each morning\"; your clinician said \"every day, ideally around the same time each day\". Worth checking with them which to follow."
+      ]
+    }
+  },
+
+  "trackers": {
+    "_comment": "Frozen at planning time and asked verbatim on every call, so the series means something. 1 is not at all, 10 is the worst it has been. Rising is worse, always.",
+    "fatigue": {
+      "label": "Tiredness",
+      "question": "Thinking about the last few days, how tired have you been?",
+      "context_id": "early_symptom_change",
+      "from_consultation": true
+    }
+  },
+
+  "check_ins": [
+    {
+      "_comment": "Day 1. The first-contact call: not a check-in, an orientation. Nothing has happened yet and nothing should be graded.",
+      "day": 1,
+      "week": 0,
+      "transcript": "Hi Sam, it's Cadence — just a quick one the day after your appointment. // Oh, hello. Yes. // I wanted to check you've got what you need to get started. Has the prescription come through yet? // Not yet, no. He said he'd send it and I could pick it up next time I'm at the clinic, but I'm not back there for a bit. // That's fine, I'll ask again in a few days. And when you do start it, do you know what time of day suits you? // Not really. Mornings are a write-off for me, honestly. // Understood — I'll leave that until you've actually got the tablets in hand.",
+      "raw": {
+        "outcomes": [
+          {
+            "commitment_text": "You will pick up the prescription the doctor sends next time you are at the clinic.",
+            "status": "not_done",
+            "patient_words": "Not yet, no. He said he'd send it and I could pick it up next time I'm at the clinic",
+            "note": "Prescription not yet collected; patient not due at the clinic."
+          }
+        ],
+        "unprompted_reports": ["Mornings are a write-off"],
+        "questions_for_doctor": []
+      },
+      "medication_updates": {
+        "collection": "not_collected",
+        "last_chased_day": 1
+      },
+      "symptom_scores": [],
+      "symptom_mentions": [],
+      "events": []
+    },
+    {
+      "_comment": "Week 2. Collected, but nine days late, and the dose gap is still open. The label photo is what closes it — and the label disagrees with the patient's memory.",
+      "day": 14,
+      "week": 2,
+      "transcript": "Hi Sam. Did you manage to pick up the prescription? // I did, yeah, finally. I was at the clinic on Tuesday so I got it then. // Good. Have you taken the first one? // I took one that evening, yes. // I've got a note here that the dose wasn't written down clearly at the appointment. Would you be able to read me what the label says? // It says levothyroxine, 25 micrograms, one tablet each morning. // Thank you — so that's levothyroxine, 25 micrograms, one each morning. Is that right? // That's what it says, yeah. Though I thought he said it was a very low dose, he didn't say a number. // I'll record both — worth asking him which to follow. And what time works for taking it? // Half two in the afternoon, if I'm honest. That's when I'm properly awake. // Then half two it is.",
+      "raw": {
+        "outcomes": [
+          {
+            "commitment_text": "You will pick up the prescription the doctor sends next time you are at the clinic.",
+            "status": "done",
+            "patient_words": "I did, yeah, finally. I was at the clinic on Tuesday so I got it then",
+            "note": "Collected on day 12, nine days later than the plan assumed."
+          },
+          {
+            "commitment_text": "You will start thyroid replacement medication.",
+            "status": "done",
+            "patient_words": "I took one that evening, yes",
+            "note": ""
+          },
+          {
+            "commitment_text": "You will take the medication every morning around 7:30–8:00 am on an empty stomach.",
+            "status": "partial",
+            "patient_words": "Half two in the afternoon, if I'm honest. That's when I'm properly awake",
+            "note": "Taking it daily, but in the afternoon rather than the agreed morning slot."
+          }
+        ],
+        "unprompted_reports": [
+          "Label states 25 micrograms; patient recalls being told only 'a very low dose'"
+        ],
+        "questions_for_doctor": [
+          "The label says 25 micrograms — is that the dose you meant?"
+        ]
+      },
+      "medication_updates": {
+        "collection": "collected",
+        "first_dose_taken": true,
+        "label_seen": true,
+        "reminder_time": "14:30",
+        "label_extracted": {
+          "name": "levothyroxine",
+          "dosage": "25 micrograms",
+          "frequency": "one tablet each morning"
+        },
+        "label_confirmed": true
+      },
+      "symptom_scores": [{ "tracker": "fatigue", "score": 8 }],
+      "symptom_mentions": [],
+      "events": [
+        {
+          "kind": "medication_start",
+          "label": "First dose of levothyroxine taken",
+          "occurred_at_day": 12,
+          "precision": "day",
+          "source": "patient_reported",
+          "patient_words": "I took one that evening"
+        }
+      ]
+    },
+    {
+      "_comment": "Week 5. The ordinary failure: adherence slips, for a reason that has nothing to do with the drug. Recorded as a fact, not graded.",
+      "day": 35,
+      "week": 5,
+      "transcript": "Hi Sam. How has taking the tablet been going? // Mostly fine. I missed a few though. // Can you say roughly how many? // Three or four maybe, over the last couple of weeks. My sister was in hospital and I was back and forth, everything went out the window. // That's understandable. Are you back on it now? // Yeah, since the weekend. // And the tiredness — how tired have you been the last few days, one to ten? // Seven. Maybe seven. // Anything else you've noticed? // Not really. Skin's a bit less dry, I suppose.",
+      "raw": {
+        "outcomes": [
+          {
+            "commitment_text": "You will take the medication every morning around 7:30–8:00 am on an empty stomach.",
+            "status": "partial",
+            "patient_words": "Three or four maybe, over the last couple of weeks",
+            "note": "Doses missed during a period of family illness; restarted."
+          }
+        ],
+        "unprompted_reports": ["Skin a bit less dry"],
+        "questions_for_doctor": []
+      },
+      "medication_updates": { "adherence": "missed_more" },
+      "symptom_scores": [{ "tracker": "fatigue", "score": 7 }],
+      "symptom_mentions": [],
+      "events": [
+        {
+          "kind": "other",
+          "label": "Doses missed during family illness",
+          "occurred_at_day": 24,
+          "precision": "week",
+          "source": "patient_reported",
+          "patient_words": "over the last couple of weeks... everything went out the window"
+        }
+      ]
+    },
+    {
+      "_comment": [
+        "Week 9. The first over-replacement symptom. It is mentioned in passing,",
+        "it sounds like nothing, and the patient does not connect it to the",
+        "tablet — which is precisely why a fixed script never finds it. One",
+        "symptom is not a cluster; nothing fires yet, and nothing should."
+      ],
+      "day": 63,
+      "week": 9,
+      "transcript": "Hi Sam. How have things been? // Not bad. Bit better than I was. // How tired, one to ten? // Five, I'd say. // That's come down. Anything new at all, even things that seem unrelated? // Not really. I've been sleeping badly, but that's just me. // Badly how? // Awake at three, four in the morning. Every night for a couple of weeks now. Nothing to do with the thyroid, I shouldn't think. // I'll make a note of it either way. And the blood test — has that been booked? // No. Nobody's contacted me about it.",
+      "raw": {
+        "outcomes": [
+          {
+            "commitment_text": "You will have a follow-up in three months to see how the medication has helped.",
+            "status": "not_done",
+            "patient_words": "No. Nobody's contacted me about it",
+            "note": "No appointment booked and no contact received."
+          }
+        ],
+        "unprompted_reports": ["Waking at 3–4am nightly for around two weeks"],
+        "questions_for_doctor": []
+      },
+      "medication_updates": { "adherence": "every_day" },
+      "symptom_scores": [{ "tracker": "fatigue", "score": 5 }],
+      "symptom_mentions": [
+        {
+          "watch_for": "trouble sleeping",
+          "flag_id": "over_replacement_cluster",
+          "patient_words": "Awake at three, four in the morning. Every night for a couple of weeks now"
+        }
+      ],
+      "events": [
+        {
+          "kind": "symptom_onset",
+          "label": "Early-hours waking began",
+          "occurred_at_day": 49,
+          "precision": "week",
+          "source": "patient_reported",
+          "patient_words": "for a couple of weeks now",
+          "context_ids": ["over_replacement_cluster"]
+        }
+      ]
+    },
+    {
+      "_comment": [
+        "Week 11. The second symptom lands and the cluster assembles — across",
+        "calls two weeks apart, which is exactly why the counting is Python's",
+        "job and not the model's. The agent reads the red flag's patient-facing",
+        "line verbatim; it does not compose a warning and does not say the word",
+        "dose.",
+        "",
+        "The blood test is now overdue. Note that nobody failed at anything",
+        "here: it was ordered, and it silently did not happen. That is the",
+        "single most useful line in the brief."
+      ],
+      "day": 77,
+      "week": 11,
+      "transcript": "Hi Sam. How have you been? // Alright. Warm, mostly. // Warm? // I've been really hot. Sat in the garden in a t-shirt last week and everyone else had coats on. Sister said I'd gone mad. // How long has that been going on? // Two weeks, about. // And the sleeping? // Still bad. Still up at three. // Thank you for telling me. I want to read you something exactly as it's written for your condition, because two of the things you've described are on it. [red flag patient-facing line read verbatim] // Right. Should I stop taking it? // That's not something I can advise on — that's a question for your clinician, and it's worth contacting them about this. I'll make sure it's all written down for them. // Okay. // And the tiredness, one to ten? // Four. // Has the blood test happened? // No. Still nothing.",
+      "raw": {
+        "outcomes": [
+          {
+            "commitment_text": "You will watch for a very fast heartbeat or feeling very anxious while on the tablets and seek urgent help if these happen.",
+            "status": "done",
+            "patient_words": "I've been really hot... Still bad. Still up at three",
+            "note": "Patient reporting heat intolerance and insomnia; no palpitations reported."
+          },
+          {
+            "commitment_text": "You will have a follow-up in three months to see how the medication has helped.",
+            "status": "not_done",
+            "patient_words": "No. Still nothing",
+            "note": "Blood test still not booked; now past its due date."
+          }
+        ],
+        "unprompted_reports": [
+          "Marked heat intolerance for around two weeks",
+          "Early-hours waking continuing"
+        ],
+        "questions_for_doctor": [
+          "Should I still be taking the tablet at this dose?",
+          "Is the hot feeling and the waking up related to the tablets?"
+        ]
+      },
+      "medication_updates": { "adherence": "every_day" },
+      "symptom_scores": [{ "tracker": "fatigue", "score": 4 }],
+      "symptom_mentions": [
+        {
+          "watch_for": "feeling hot when others do not, or sweating more",
+          "flag_id": "over_replacement_cluster",
+          "patient_words": "I've been really hot. Sat in the garden in a t-shirt last week and everyone else had coats on"
+        },
+        {
+          "watch_for": "trouble sleeping",
+          "flag_id": "over_replacement_cluster",
+          "patient_words": "Still bad. Still up at three"
+        }
+      ],
+      "events": [
+        {
+          "kind": "symptom_onset",
+          "label": "Heat intolerance began",
+          "occurred_at_day": 63,
+          "precision": "week",
+          "source": "patient_reported",
+          "patient_words": "Two weeks, about",
+          "context_ids": ["over_replacement_cluster"]
+        }
+      ]
+    }
+  ],
+
+  "expected_brief_shape": {
+    "_comment": [
+      "Not the brief itself — the brief is generated. This is what the interval",
+      "above should make available to it, kept here so a generated brief can be",
+      "checked against what actually happened rather than read for plausibility.",
+      "Every line is a fact from a call or a date that passed."
+    ],
+    "agreed_but_not_done": [
+      "Blood test / three-month review: ordered at the consultation, never booked, now past due."
+    ],
+    "done_differently": [
+      "Tablet taken at 14:30 rather than the agreed morning slot, on the patient's own reasoning about when they are awake.",
+      "Prescription collected on day 12 rather than promptly."
+    ],
+    "happened_in_the_interval": [
+      "Three or four doses missed around week 4 during a family illness; restarted.",
+      "Early-hours waking from around week 7, continuing.",
+      "Marked heat intolerance from around week 9.",
+      "Pharmacy label states 25 micrograms; the consultation stated only 'a very low dose'."
+    ],
+    "changed": [
+      "Tiredness 8 → 4 across the interval (four points, on the same question each call)."
+    ],
+    "cluster": {
+      "flag_id": "over_replacement_cluster",
+      "assembled_at_week": 11,
+      "from": ["insomnia (week 9)", "heat intolerance (week 11)"],
+      "note": "Two signs, reported two weeks apart, neither connected to the medication by the patient."
+    },
+    "open_questions_from_patient": [
+      "Should I still be taking the tablet at this dose?",
+      "Is the hot feeling and the waking up related to the tablets?"
+    ],
+    "gaps": [
+      "No blood result exists for this interval, so nothing here speaks to thyroid levels.",
+      "No palpitations or tremor were asked about directly after week 11."
+    ]
+  }
+}
