@@ -1,0 +1,174 @@
+{
+  "source_audio": "demo_consultation.m4a",
+  "language_code": "eng",
+  "duration_seconds": 221.84,
+  "role_confidence": "high",
+  "speakers": [
+    {
+      "label": "speaker_0",
+      "role": "DOCTOR"
+    },
+    {
+      "label": "speaker_1",
+      "role": "PATIENT"
+    }
+  ],
+  "dialogue": "DOCTOR: Hi. So what brought you in today?\nPATIENT: Oh, hi. Um, so I, I come in with some recent fatigue and a little bit of flap, and I also noticed my skin has become very dry. Um, I don't know if it's related to my recent surgery. I recently removed one side of my thyroid. I actually went for a blood test, and today I'm just coming in to check what, how's my result and is there anything I should do.\nDOCTOR: Okay. So when did you remove your thyroid?\nPATIENT: Um, about one month ago, I would say.\nDOCTOR: Okay. And th-th-these symptoms, did they start after you removed the thyroid?\nPATIENT: Yeah, I think so. I only noticed it recently.\nDOCTOR: Okay. I'm just looking at your blood results here. Yes, it doesn't look as though that there's much of a problem. Um, but aside from the thyroid symptoms, uh, wh-why did you remove your thyroid?\nPATIENT: Um, so I had a tumor. It's, um, it's, it's a good one, but it was getting too big, so they had to remove it.\nDOCTOR: Oh, it must be quite stressful. Okay. So I can see your thyroid levels are low. So, um, the best treatment for this would be to start on thyroid replacement medication. Have you ever had that before?\nPATIENT: Um, no.\nDOCTOR: Have you ever heard of synthetic thyroid?\nPATIENT: No, I don't think so.\nDOCTOR: Okay. W-what do you know about synthetic thyroid?\nPATIENT: He has already helped me so much.\nDOCTOR: Yeah. So replacing your thyroid level, so you can bring some back to your normal levels. Um, it should resolve some of these symptoms. Uh, we can start it at a very low dose, um, and see how your body reacts to it. Uh, but there are some rules to follow when you take this medication. Um, so thyroid... What do you know about the thyroid?\nPATIENT: Um, I guess I don't know anything about the thyroid.\nDOCTOR: Yeah. So thyroid hormones, they regulate your whole, your metabolism. So how you digest certain foods and how you, um, use energy in your body. So if you have too much thyroid, um, your body's, um, can affect all sorts of parts. It makes you have like arrhythmia. It can, um, make your heart beat really fast. It can make you feel really bad, anxious, or really stressed. When you are on these tablets, you have to be careful that you're taking too many of these tablets. Your thyroid levels go too high. That can be really dangerous. Your heart could start beating really fast. Um, and then if that happens, you ever feel that way, you need to go to the hospital. So that's something to really look out for yourself. Um, another thing to look out for is that you need to take these medications on an empty stomach every day, ideally around the same time each day. So the best thing to do is to do it first thing in the morning with a glass of water. So around, like, what time do you take breakfast?\nPATIENT: Around seven-thirty.\nDOCTOR: Every day at, like, seven-thirty, eight o'clock in the morning. Do you think you could do that?\nPATIENT: Yeah.\nDOCTOR: Okay, perfect. So I'll send the prescription for this, and then you can pick it up next time you're here. Um, three months and then we can see how it's helped. But again, if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently. That could be a sign that your thyroid levels are either high or some clots have formed in your body, which could be dangerous. So if that happens to you, okay?\nPATIENT: Yeah. I'll try to.",
+  "utterances": [
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Hi. So what brought you in today?",
+      "start": 0.96,
+      "end": 2.38
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Oh, hi. Um, so I, I come in with some recent fatigue and a little bit of flap, and I also noticed my skin has become very dry. Um, I don't know if it's related to my recent surgery. I recently removed one side of my thyroid. I actually went for a blood test, and today I'm just coming in to check what, how's my result and is there anything I should do.",
+      "start": 3.16,
+      "end": 28.22
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Okay. So when did you remove your thyroid?",
+      "start": 29.32,
+      "end": 31.5
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Um, about one month ago, I would say.",
+      "start": 31.9,
+      "end": 34.18
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Okay. And th-th-these symptoms, did they start after you removed the thyroid?",
+      "start": 34.32,
+      "end": 40.6
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Yeah, I think so. I only noticed it recently.",
+      "start": 40.68,
+      "end": 43.36
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Okay. I'm just looking at your blood results here. Yes, it doesn't look as though that there's much of a problem. Um, but aside from the thyroid symptoms, uh, wh-why did you remove your thyroid?",
+      "start": 44.0,
+      "end": 58.14
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Um, so I had a tumor. It's, um, it's, it's a good one, but it was getting too big, so they had to remove it.",
+      "start": 58.15,
+      "end": 68.26
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Oh, it must be quite stressful. Okay. So I can see your thyroid levels are low. So, um, the best treatment for this would be to start on thyroid replacement medication. Have you ever had that before?",
+      "start": 68.27,
+      "end": 82.2
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Um, no.",
+      "start": 82.41,
+      "end": 82.84
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Have you ever heard of synthetic thyroid?",
+      "start": 82.86,
+      "end": 84.96
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "No, I don't think so.",
+      "start": 85.0,
+      "end": 85.88
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Okay. W-what do you know about synthetic thyroid?",
+      "start": 85.98,
+      "end": 90.22
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "He has already helped me so much.",
+      "start": 90.34,
+      "end": 92.2
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Yeah. So replacing your thyroid level, so you can bring some back to your normal levels. Um, it should resolve some of these symptoms. Uh, we can start it at a very low dose, um, and see how your body reacts to it. Uh, but there are some rules to follow when you take this medication. Um, so thyroid... What do you know about the thyroid?",
+      "start": 92.78,
+      "end": 119.0
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Um, I guess I don't know anything about the thyroid.",
+      "start": 119.04,
+      "end": 120.7
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Yeah. So thyroid hormones, they regulate your whole, your metabolism. So how you digest certain foods and how you, um, use energy in your body. So if you have too much thyroid, um, your body's, um, can affect all sorts of parts. It makes you have like arrhythmia. It can, um, make your heart beat really fast. It can make you feel really bad, anxious, or really stressed. When you are on these tablets, you have to be careful that you're taking too many of these tablets. Your thyroid levels go too high. That can be really dangerous. Your heart could start beating really fast. Um, and then if that happens, you ever feel that way, you need to go to the hospital. So that's something to really look out for yourself. Um, another thing to look out for is that you need to take these medications on an empty stomach every day, ideally around the same time each day. So the best thing to do is to do it first thing in the morning with a glass of water. So around, like, what time do you take breakfast?",
+      "start": 120.71,
+      "end": 182.35
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Around seven-thirty.",
+      "start": 182.68,
+      "end": 182.75
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Every day at, like, seven-thirty, eight o'clock in the morning. Do you think you could do that?",
+      "start": 182.75,
+      "end": 187.3
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Yeah.",
+      "start": 187.92,
+      "end": 188.72
+    },
+    {
+      "speaker": "speaker_0",
+      "role": "DOCTOR",
+      "text": "Okay, perfect. So I'll send the prescription for this, and then you can pick it up next time you're here. Um, three months and then we can see how it's helped. But again, if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently. That could be a sign that your thyroid levels are either high or some clots have formed in your body, which could be dangerous. So if that happens to you, okay?",
+      "start": 188.73,
+      "end": 219.68
+    },
+    {
+      "speaker": "speaker_1",
+      "role": "PATIENT",
+      "text": "Yeah. I'll try to.",
+      "start": 219.76,
+      "end": 221.84
+    }
+  ],
+  "text": "Hi. So what brought you in today? Oh, hi. Um, so I, I come in with some recent fatigue and a little bit of flap, and I also noticed my skin has become very dry. Um, I don't know if it's related to my recent surgery. I recently removed one side of my thyroid. I actually went for a blood test, and today I'm just coming in to check what, how's my result and is there anything I should do. Okay. So when did you remove your thyroid? Um, about one month ago, I would say. Okay. And th-th-these symptoms, did they start after you removed the thyroid? Yeah, I think so. I only noticed it recently. Okay. I'm just looking at your blood results here. Yes, it doesn't look as though that there's much of a problem. Um, but aside from the thyroid symptoms, uh, wh-why did you remove your thyroid? Um, so I had a tumor. It's, um, it's, it's a good one, but it was getting too big, so they had to remove it. Oh, it must be quite stressful. Okay. So I can see your thyroid levels are low. So, um, the best treatment for this would be to start on thyroid replacement medication. Have you ever had that before? Um, no. Have you ever heard of synthetic thyroid? No, I don't think so. Okay. W-what do you know about synthetic thyroid? He has already helped me so much. Yeah. So replacing your thyroid level, so you can bring some back to your normal levels. Um, it should resolve some of these symptoms. Uh, we can start it at a very low dose, um, and see how your body reacts to it. Uh, but there are some rules to follow when you take this medication. Um, so thyroid... What do you know about the thyroid? Um, I guess I don't know anything about the thyroid. Yeah. So thyroid hormones, they regulate your whole, your metabolism. So how you digest certain foods and how you, um, use energy in your body. So if you have too much thyroid, um, your body's, um, can affect all sorts of parts. It makes you have like arrhythmia. It can, um, make your heart beat really fast. It can make you feel really bad, anxious, or really stressed. When you are on these tablets, you have to be careful that you're taking too many of these tablets. Your thyroid levels go too high. That can be really dangerous. Your heart could start beating really fast. Um, and then if that happens, you ever feel that way, you need to go to the hospital. So that's something to really look out for yourself. Um, another thing to look out for is that you need to take these medications on an empty stomach every day, ideally around the same time each day. So the best thing to do is to do it first thing in the morning with a glass of water. So around, like, what time do you take breakfast? Around seven-thirty. Every day at, like, seven-thirty, eight o'clock in the morning. Do you think you could do that? Yeah. Okay, perfect. So I'll send the prescription for this, and then you can pick it up next time you're here. Um, three months and then we can see how it's helped. But again, if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently. That could be a sign that your thyroid levels are either high or some clots have formed in your body, which could be dangerous. So if that happens to you, okay? Yeah. I'll try to."
+}

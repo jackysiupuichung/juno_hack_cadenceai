@@ -86,14 +86,24 @@ def transcribe(request):
             status=status.HTTP_504_GATEWAY_TIMEOUT,
         )
 
+    roles = transcript.roles
+
     return Response(
         {
             "text": transcript.text,
             "language_code": transcript.language_code,
+            # Role-labelled, which is what the summary stage reads.
             "dialogue": transcript.as_dialogue(),
+            "speakers": [
+                {"label": label, "role": transcript.role_for(label)}
+                for label in transcript.speakers
+            ],
+            "role_confidence": roles.confidence if roles else "none",
+            "duration_seconds": transcript.duration,
             "utterances": [
                 {
                     "speaker": u.speaker,
+                    "role": transcript.role_for(u.speaker),
                     "text": u.text,
                     "start": u.start,
                     "end": u.end,
