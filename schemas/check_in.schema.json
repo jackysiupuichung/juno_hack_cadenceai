@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/check_in.schema.json",
+  "title": "Voice check-in outcome mapping",
+  "description": "Output of /api/checkin. Maps what the patient said in a short voice check-in onto the open commitments from their last visit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcomes", "unprompted_reports", "questions_for_doctor"],
+  "properties": {
+    "outcomes": {
+      "type": "array",
+      "description": "One entry per open commitment discussed. Commitments not raised in the check-in get status \"unknown\".",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commitment_id", "status", "patient_words", "note"],
+        "properties": {
+          "commitment_id": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["done", "not_done", "partial", "changed", "unknown"]
+          },
+          "patient_words": {
+            "type": "string",
+            "description": "Quoted or closely paraphrased. \"\" if the commitment was not discussed."
+          },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "unprompted_reports": {
+      "type": "array",
+      "description": "Symptoms, side effects, or events the patient reported that were not tied to a commitment.",
+      "items": { "type": "string" }
+    },
+    "questions_for_doctor": {
+      "type": "array",
+      "description": "Things the patient said they want to ask at the next visit. Carried into the brief.",
+      "items": { "type": "string" }
+    }
+  }
+}
