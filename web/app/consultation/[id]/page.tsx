@@ -1,0 +1,351 @@
+"use client"
+
+import * as React from "react"
+import Link from "next/link"
+import { useParams, useRouter } from "next/navigation"
+import {
+  AlertTriangle,
+  Ban,
+  CalendarClock,
+  ClipboardList,
+  HeartPulse,
+  Leaf,
+  MapPin,
+  Pill,
+  Smile,
+  Stethoscope,
+  Trash2,
+  User,
+  FileText,
+} from "lucide-react"
+import { useApp } from "@/lib/store"
+import { formatDate } from "@/lib/dates"
+import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
+import { SummaryCard } from "@/components/summary-card"
+import { AddReminderDialog } from "@/components/add-reminder-dialog"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+
+const FEELING_LABEL: Record<string, string> = {
+  better: "Feeling better",
+  same: "About the same",
+  worse: "Feeling worse",
+}
+
+const NO_CONDITION = "none"
+
+export default function ConsultationPage() {
+  const router = useRouter()
+  const params = useParams<{ id: string }>()
+  const { data, hydrated, deleteAppointment, linkAppointment } = useApp()
+
+  const appointment = data.appointments.find((a) => a.id === params.id)
+  const condition = appointment?.conditionId
+    ? data.conditions.find((c) => c.id === appointment.conditionId)
+    : undefined
+  const activeConditions = data.conditions.filter((c) => c.status === "active")
+
+  React.useEffect(() => {
+    if (hydrated && !appointment) router.replace("/")
+  }, [hydrated, appointment, router])
+
+  if (!appointment) {
+    return (
+      <AppShell>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        </div>
+      </AppShell>
+    )
+  }
+
+  const s = appointment.summary
+  const plan = s?.future_plan
+  const showFollowUp = Boolean(plan?.follow_up_needed)
+
+  return (
+    <AppShell>
+      <ScreenHeader
+        title="Consultation"
+        subtitle={condition ? `${condition.name} · ${formatDate(appointment.date)}` : formatDate(appointment.date)}
+        backHref="/"
+      />
+
+      <Content className="flex flex-col gap-4 pb-10">
+        <section className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-0.5 font-medium text-secondary-foreground">
+              <MapPin className="size-3.5" />
+              {appointment.careSetting}
+            </span>
+            {appointment.organisationName && (
+              <span className="text-muted-foreground">
+                {appointment.organisationName}
+              </span>
+            )}
+            {appointment.doctorName && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <User className="size-3.5" />
+                {appointment.doctorName}
+              </span>
+            )}
+          </div>
+          {appointment.organisationAddress && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {appointment.organisationAddress}
+            </p>
+          )}
+        </section>
+
+        {/* Linked condition control */}
+        <section className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-4">
+          <Label htmlFor="linked-condition" className="flex items-center gap-1.5">
+            <Stethoscope className="size-4 text-primary" />
+            Linked condition
+          </Label>
+          <Select
+            value={appointment.conditionId ?? NO_CONDITION}
+            onValueChange={(v) =>
+              linkAppointment(appointment.id, v === NO_CONDITION ? null : v)
+            }
+          >
+            <SelectTrigger id="linked-condition" className="h-11 w-full">
+              <SelectValue>
+                {(value: string | null) =>
+                  !value || value === NO_CONDITION
+                    ? "Not linked"
+                    : (activeConditions.find((c) => c.id === value)?.name ??
+                      condition?.name ??
+                      "Not linked")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_CONDITION}>Not linked</SelectItem>
+              {activeConditions.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground text-pretty">
+            {condition
+              ? "This consultation appears under the linked condition."
+              : "Attach this consultation to a condition to keep related visits together."}
+          </p>
+        </section>
+
+        {!s ? (
+          <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">
+            No summary was generated for this consultation.
+          </div>
+        ) : (
+          <>
+            {s.red_flags.length > 0 && (
+              <SummaryCard
+                tone="warning"
+                icon={<AlertTriangle />}
+                title="Warning signs — seek help if these happen"
+              >
+                <ul className="flex flex-col gap-1.5">
+                  {s.red_flags.map((f, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-warning-foreground/70" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SummaryCard>
+            )}
+
+            {s.doctor_diagnosis && (
+              <SummaryCard icon={<Stethoscope />} title="Diagnosis">
+                <p>{s.doctor_diagnosis}</p>
+              </SummaryCard>
+            )}
+
+            {s.patient_symptoms_summary && (
+              <SummaryCard icon={<ClipboardList />} title="What you described">
+                <p>{s.patient_symptoms_summary}</p>
+              </SummaryCard>
+            )}
+
+            {s.doctor_advice && (
+              <SummaryCard icon={<HeartPulse />} title="Doctor's advice">
+                <p>{s.doctor_advice}</p>
+              </SummaryCard>
+            )}
+
+            {s.medications.length > 0 && (
+              <SummaryCard icon={<Pill />} title="Medications">
+                <ul className="flex flex-col gap-3">
+                  {s.medications.map((m, i) => (
+                    <li key={i} className="rounded-xl bg-muted/60 p-3">
+                      <p className="font-semibold text-foreground">
+                        {m.name}
+                        {m.dosage ? ` · ${m.dosage}` : ""}
+                      </p>
+                      <div className="mt-1 flex flex-col gap-0.5 text-muted-foreground">
+                        {m.frequency && <span>How often: {m.frequency}</span>}
+                        {m.duration && <span>Duration: {m.duration}</span>}
+                        {m.instructions && <span>Notes: {m.instructions}</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </SummaryCard>
+            )}
+
+            {s.things_to_avoid.length > 0 && (
+              <SummaryCard icon={<Ban />} title="Things to avoid">
+                <ul className="flex flex-col gap-1.5">
+                  {s.things_to_avoid.map((t, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SummaryCard>
+            )}
+
+            {s.lifestyle_advice.length > 0 && (
+              <SummaryCard icon={<Leaf />} title="Lifestyle advice">
+                <ul className="flex flex-col gap-1.5">
+                  {s.lifestyle_advice.map((t, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground/60" />
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SummaryCard>
+            )}
+
+            {s.return_check && (
+              <SummaryCard icon={<CalendarClock />} title="When to return">
+                <p>{s.return_check}</p>
+              </SummaryCard>
+            )}
+
+            {showFollowUp && (
+              <section className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <CalendarClock className="size-4 text-primary" />
+                  Follow-up needed
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {plan?.purpose || "A follow-up was recommended."}
+                  {plan?.date_or_timeframe ? ` (${plan.date_or_timeframe})` : ""}
+                </p>
+                <div className="mt-3">
+                  <AddReminderDialog appointment={appointment} />
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        <section className="flex flex-col gap-2 border-t border-border pt-4">
+          {appointment.checkIn ? (
+            <div className="flex items-center justify-between rounded-xl bg-accent/60 px-4 py-3 text-sm">
+              <span className="inline-flex items-center gap-2 font-medium text-accent-foreground">
+                <Smile className="size-4" />
+                {FEELING_LABEL[appointment.checkIn.feeling]}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                nativeButton={false}
+                render={<Link href={`/consultation/${appointment.id}/check-in`} />}
+              >
+                Update
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="lg"
+              nativeButton={false}
+              render={<Link href={`/consultation/${appointment.id}/check-in`} />}
+            >
+              <Smile className="size-4" />
+              How are you feeling since this visit?
+            </Button>
+          )}
+
+          <Dialog>
+            <DialogTrigger
+              render={
+                <Button variant="ghost" size="sm" className="text-muted-foreground">
+                  <Trash2 className="size-4" />
+                  Delete consultation
+                </Button>
+              }
+            />
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete this consultation?</DialogTitle>
+                <DialogDescription>
+                  This permanently removes the summary and any linked reminder. This
+                  cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end">
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    deleteAppointment(appointment.id)
+                    router.replace("/")
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {appointment.transcript && (
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button variant="ghost" size="sm" className="text-muted-foreground">
+                    <FileText className="size-4" />
+                    View transcript
+                  </Button>
+                }
+              />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Transcript</DialogTitle>
+                  <DialogDescription>
+                    Automatically generated from your recording.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-muted/60 p-3 text-sm leading-relaxed text-foreground">
+                  {appointment.transcript}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </section>
+      </Content>
+    </AppShell>
+  )
+}
