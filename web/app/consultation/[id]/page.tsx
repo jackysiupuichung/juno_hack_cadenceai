@@ -55,7 +55,7 @@ export default function ConsultationPage() {
   const activeConditions = data.conditions.filter((c) => c.status === "active")
 
   React.useEffect(() => {
-    if (hydrated && !appointment) router.replace("/")
+    if (hydrated && !appointment) router.replace("/home")
   }, [hydrated, appointment, router])
 
   if (!appointment) {
@@ -77,7 +77,7 @@ export default function ConsultationPage() {
       <ScreenHeader
         title="Consultation"
         subtitle={condition ? `${condition.name} · ${formatDate(appointment.date)}` : formatDate(appointment.date)}
-        backHref="/"
+        backHref="/home"
       />
 
       <Content className="flex flex-col gap-4 pb-10">
@@ -291,7 +291,7 @@ export default function ConsultationPage() {
                   variant="destructive"
                   onClick={() => {
                     deleteAppointment(appointment.id)
-                    router.replace("/")
+                    router.replace("/home")
                   }}
                 >
                   Delete

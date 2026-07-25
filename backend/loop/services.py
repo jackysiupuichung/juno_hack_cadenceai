@@ -196,6 +196,10 @@ Rules:
 - Also capture anything the patient reported that was NOT tied to a
   commitment: new symptoms, side effects, events, or questions they want to
   ask their doctor.
+- A generic side-effect reference for the patient's current medications may be
+  supplied. Use it only to recognise that something the patient describes is a
+  known side effect worth noting — never to suggest a dose change or that they
+  stop taking it.
 - Return valid JSON only. No markdown, no commentary.
 
 Schema:
@@ -241,6 +245,10 @@ Rules:
   frequently the useful part, and a list sorted by anything else loses it.
 - Use rough timing where the check-in dates support it ("around week two").
 - Write for a clinician reading in under a minute: dense, specific, no filler.
+- A `medication_reference` may be supplied — generic side-effect and
+  monitoring information for the patient's current medications. Use it only
+  to recognise that a symptom the patient reported matches a known side
+  effect worth flagging in "happened"; never to suggest a dose change.
 - Return valid JSON only. No markdown, no commentary.
 
 Schema:

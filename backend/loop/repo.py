@@ -45,11 +45,20 @@ def list_conditions(patient_id: str) -> list[dict]:
     )
 
 
-def create_condition(patient_id: str, name: str) -> dict:
+def create_condition(patient_id: str, name: str, disease_context_id: str | None = None) -> dict:
+    sb = get_supabase()
+    row = {"patient_id": patient_id, "name": name, "status": "active"}
+    if disease_context_id:
+        row["disease_context_id"] = disease_context_id
+    return sb.table("conditions").insert(row).execute().data[0]
+
+
+def set_condition_disease_context(condition_id: str, disease_context_id: str | None) -> dict:
     sb = get_supabase()
     return (
         sb.table("conditions")
-        .insert({"patient_id": patient_id, "name": name, "status": "active"})
+        .update({"disease_context_id": disease_context_id})
+        .eq("id", condition_id)
         .execute()
         .data[0]
     )
@@ -67,7 +76,10 @@ def update_condition_status(condition_id: str, status: str) -> dict:
 
 
 def delete_condition(condition_id: str) -> None:
-    """Cascades to visits/commitments/check_ins/outcomes/briefs via FK."""
+    """Its check_ins/outcomes/briefs/plans/events cascade-delete via FK.
+    Visits are exempt — they're standalone consultations that merely
+    reference a condition, so the FK is ON DELETE SET NULL: they survive,
+    unlinked."""
     sb = get_supabase()
     sb.table("conditions").delete().eq("id", condition_id).execute()
 
@@ -84,9 +96,25 @@ def list_visits(condition_id: str) -> list[dict]:
     )
 
 
+def list_visits_for_patient(patient_id: str) -> list[dict]:
+    """Every consultation the patient has recorded, linked or not — a visit
+    no longer requires a condition (see
+    supabase/migrations/20260725190000_standalone_visits.sql)."""
+    sb = get_supabase()
+    return (
+        sb.table("visits")
+        .select("*, conditions(id, name)")
+        .eq("patient_id", patient_id)
+        .order("date", desc=True)
+        .execute()
+        .data
+    )
+
+
 def create_visit(
-    condition_id: str,
+    patient_id: str,
     *,
+    condition_id: str | None = None,
     date,
     care_setting,
     clinician_name,
@@ -98,6 +126,7 @@ def create_visit(
 ) -> dict:
     sb = get_supabase()
     row = {
+        "patient_id": patient_id,
         "condition_id": condition_id,
         "date": date,
         "care_setting": care_setting,
@@ -114,8 +143,20 @@ def create_visit(
 
 def get_visit(visit_id: str) -> dict | None:
     sb = get_supabase()
-    rows = sb.table("visits").select("*").eq("id", visit_id).execute().data
+    rows = sb.table("visits").select("*, conditions(id, name)").eq("id", visit_id).execute().data
     return rows[0] if rows else None
+
+
+def set_visit_condition(visit_id: str, condition_id: str | None) -> dict:
+    """Tag a standalone consultation to a condition, or unlink it (null)."""
+    sb = get_supabase()
+    return (
+        sb.table("visits")
+        .update({"condition_id": condition_id})
+        .eq("id", visit_id)
+        .execute()
+        .data[0]
+    )
 
 
 def delete_visit(visit_id: str) -> None:
@@ -359,3 +400,47 @@ def delete_patient_cascade(patient_id: str) -> None:
     foreign keys (see supabase/migrations) to remove every dependent row."""
     sb = get_supabase()
     sb.table("patients").delete().eq("id", patient_id).execute()
+
+
+# --- Drugs (generic medication reference — schemas/drug.schema.json) --------
+# Unlike disease_context (repo files), drugs are looked up by name match
+# against many visits' medications, so they live in Supabase, not fixtures.
+
+
+def list_drugs() -> list[dict]:
+    sb = get_supabase()
+    return sb.table("drugs").select("*").order("slug").execute().data
+
+
+def get_drug(slug: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("drugs").select("*").eq("slug", slug).execute().data
+    return rows[0] if rows else None
+
+
+def create_drug(content: dict) -> dict:
+    sb = get_supabase()
+    slug = content["drug"]["id"]
+    return sb.table("drugs").insert({"slug": slug, "content": content}).execute().data[0]
+
+
+def get_drugs_by_names(names: list[str]) -> list[dict]:
+    """Case-insensitive match of medication names (as they appear on a visit
+    summary) against each drug's name/plain_name/aliases — the link from
+    "what was prescribed" to the generic reference for it. Aliases matter: a
+    doctor often says "synthetic thyroid", never "levothyroxine", and the
+    summary quotes them, not the drug's own name."""
+    if not names:
+        return []
+    needles = {n.strip().lower() for n in names if n and n.strip()}
+    if not needles:
+        return []
+    matched = []
+    for drug in list_drugs():
+        d = drug["content"]["drug"]
+        haystack = {d["name"].lower(), d["plain_name"].lower(), *(a.lower() for a in d.get("aliases", []))}
+        if haystack & needles or any(
+            needle in name or name in needle for needle in needles for name in haystack
+        ):
+            matched.append(drug)
+    return matched

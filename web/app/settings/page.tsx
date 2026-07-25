@@ -40,7 +40,7 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <ScreenHeader title="Settings & privacy" backHref="/" />
+      <ScreenHeader title="Settings & privacy" backHref="/home" />
 
       <Content className="flex flex-col gap-6 pb-10">
         <section className="flex flex-col gap-3">

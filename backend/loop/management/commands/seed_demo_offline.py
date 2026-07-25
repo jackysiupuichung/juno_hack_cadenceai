@@ -101,11 +101,12 @@ class Command(BaseCommand):
         condition = next(
             (c for c in repo.list_conditions(p["id"]) if c["name"] == options["condition_name"]),
             None,
-        ) or repo.create_condition(p["id"], options["condition_name"])
+        ) or repo.create_condition(p["id"], options["condition_name"], disease_context_id="hypothyroidism")
 
         visit_date = options["date"] or date_cls.today().isoformat()
         visit = repo.create_visit(
-            condition["id"],
+            p["id"],
+            condition_id=condition["id"],
             date=visit_date,
             care_setting=options["care_setting"],
             clinician_name="",

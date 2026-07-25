@@ -19,7 +19,7 @@ export default function OnboardingPage() {
 
   React.useEffect(() => {
     if (hydrated && data.profile) {
-      router.replace(data.consent ? "/" : "/consent")
+      router.replace(data.consent ? "/home" : "/consent")
     }
   }, [hydrated, data.profile, data.consent, router])
 

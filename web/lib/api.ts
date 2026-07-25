@@ -181,6 +181,49 @@ export interface TimelineEvent {
   preview?: string
 }
 
+/**
+ * A dated (or due) thing from the condition's chronology — see
+ * backend/capture/events.py and the `events` table. What powers the
+ * calendar: `occurred_at` is when it actually happened (however precisely
+ * known), `due_at` is when a scheduled thing is due, and `when` is a
+ * server-formatted string already carrying the right qualifier ("around
+ * week two", "due 12 Aug").
+ */
+export interface CadenceEvent {
+  id: string
+  kind:
+    | "visit"
+    | "medication_start"
+    | "medication_stop"
+    | "dose_change"
+    | "test_taken"
+    | "test_result"
+    | "symptom_onset"
+    | "symptom_resolved"
+    | "appointment"
+    | "check_in"
+    | "other"
+  label: string
+  occurred_at: string | null
+  due_at: string | null
+  precision: "exact" | "day" | "week" | "month" | "approx"
+  source: "patient_reported" | "consultation" | "scheduled" | "derived"
+  patient_words: string
+  when: string
+  reporting_delay_days: number | null
+  context_ids: string[]
+}
+
+export interface EventsResponse {
+  today: string
+  timeline: CadenceEvent[]
+  upcoming: CadenceEvent[]
+  overdue: CadenceEvent[]
+  undated: CadenceEvent[]
+  anchors: Record<string, string>
+  fulfilled_count: number
+}
+
 export interface CheckInContext {
   week: number
   visit_date: string
@@ -325,4 +368,8 @@ export const api = {
       condition_id: conditionId,
       question,
     }),
+
+  /** The calendar's endpoint — one condition's whole chronology in one call. */
+  events: (conditionId: string) =>
+    get<EventsResponse>(`events?condition_id=${conditionId}`),
 }
