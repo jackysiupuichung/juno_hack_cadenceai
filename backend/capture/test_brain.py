@@ -2218,6 +2218,49 @@ class VisitsHeldTests(SimpleTestCase):
         self.assertEqual(self._held([{"id": "n", "date": "2026-07-29", "summary": None}]), [])
 
 
+class SyntheticNextVisitTests(SimpleTestCase):
+    """The appointment the brief is for.
+
+    The seed reads these keys by name and passes them straight to
+    repo.create_visit, so a renamed or dropped key here is a KeyError at seed
+    time — during the demo, against a real database.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.next_visit = json.loads(
+            (FIXTURES / "demo_interval.json").read_text()
+        )["next_visit"]
+
+    def test_the_fixture_supplies_every_field_the_seed_reads(self):
+        for key in (
+            "days_before_today",
+            "care_setting",
+            "clinician_name",
+            "organisation",
+            "organisation_address",
+            "reason",
+        ):
+            self.assertIn(key, self.next_visit)
+
+    def test_the_care_setting_is_one_the_visits_table_allows(self):
+        # A check constraint, so a wrong value here fails the insert rather
+        # than storing something odd.
+        self.assertIn(
+            self.next_visit["care_setting"],
+            {"gp", "hospital", "emergency", "specialist"},
+        )
+
+    def test_the_appointment_is_ahead_of_today_but_close_enough_to_be_the_point(self):
+        # Behind today and it is a visit that already happened, which would make
+        # the brief history. Far ahead and there is no reason to be holding a
+        # brief yet.
+        days = self.next_visit["days_before_today"]
+        self.assertGreater(days, 0)
+        self.assertLessEqual(days, 14)
+
+
 class SyntheticMedicationThreadTests(SimpleTestCase):
     """Replaying the interval's medication updates, call by call."""
 

@@ -312,6 +312,36 @@
     }
   ],
 
+  "next_visit": {
+    "_comment": [
+      "The second consultation — scheduled, not yet happened. It is deliberately",
+      "empty of a transcript and a summary, because it has none: the appointment",
+      "is four days away.",
+      "",
+      "This is the visit the brief is FOR. Without a row here the brief is an",
+      "artifact with no destination, and the demo's fourth beat — the patient",
+      "walks in and hands the doctor this — has nothing on the calendar to walk",
+      "into. With it, the interval has two ends: a consultation twelve weeks",
+      "behind and an appointment four days ahead, and everything above sits",
+      "between them.",
+      "",
+      "It is NOT a completed visit. A seeded Visit 2 with its own summary would",
+      "turn the brief into history — a record of an appointment that already",
+      "went well — when the whole claim is that the brief changes how the next",
+      "appointment starts. The arrow points forward, so the data must too.",
+      "",
+      "previous_brief_id is set by the seed command to the brief it generates,",
+      "which is the return arrow the schema added for exactly this: a visit the",
+      "patient did not walk into cold."
+    ],
+    "days_before_today": 4,
+    "care_setting": "specialist",
+    "clinician_name": "Dr Amara Osei",
+    "organisation": "Endocrinology, St Thomas' Hospital",
+    "organisation_address": "Westminster Bridge Road, London SE1 7EH",
+    "reason": "Twelve-week review after starting levothyroxine"
+  },
+
   "expected_brief_shape": {
     "_comment": [
       "Not the brief itself — the brief is generated. This is what the interval",

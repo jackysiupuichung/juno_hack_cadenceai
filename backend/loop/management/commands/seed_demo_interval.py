@@ -22,6 +22,15 @@ interval with the texture a real one has:
     to the medication by the patient — the cluster the product exists to catch,
     assembled one call at a time
 
+It also writes the appointment ahead: a second consultation, four days out, with
+no transcript and no summary because it has not happened yet. That row is what
+makes the brief an artifact with a destination rather than a report on the past
+— the interval now has two ends, a consultation twelve weeks behind and an
+appointment four days ahead, with everything above sitting between them. It is
+deliberately not a completed visit: a seeded Visit 2 with its own summary would
+turn the brief into history, when the claim is that the brief changes how the
+next appointment starts.
+
 Calls are replayed in order rather than written as an end state, because the
 order is the point. The medication thread accumulates across them, which is the
 behaviour the persistence layer was added for and the thing worth demonstrating
@@ -100,6 +109,8 @@ class Command(BaseCommand):
         for path in (TRANSCRIPT_PATH, SUMMARY_PATH, INTERVAL_PATH):
             if not path.exists():
                 raise CommandError(f"Fixture not found at {path}")
+
+        self._require_tables()
 
         transcript = json.loads(TRANSCRIPT_PATH.read_text()).get("dialogue", "")
         summary = json.loads(SUMMARY_PATH.read_text())["summary"]
@@ -321,6 +332,60 @@ class Command(BaseCommand):
             for task in medication.due_tasks([med_state], day=day):
                 self.stdout.write(f"  still outstanding: [{task.kind}] {task.intent}")
 
+        # --- The appointment ahead -------------------------------------------
+        # The interval has two ends. Without this row the brief is an artifact
+        # with no destination: something generated about the past rather than
+        # carried into the next appointment. It is written with no transcript
+        # and no summary because it has neither — it has not happened yet.
+        upcoming = interval.get("next_visit")
+        next_visit = None
+        if upcoming:
+            next_date = date_cls.today() + timedelta(days=upcoming["days_before_today"])
+
+            # If a brief already exists for this condition, the appointment is
+            # one the patient is not walking into cold, and the schema has a
+            # column that says so. The offline seed writes no brief itself
+            # (build_brief needs a key), so on a first run this is null and is
+            # filled by generating the brief — which is the order the demo runs
+            # in anyway.
+            previous = repo.get_latest_brief(condition["id"])
+
+            next_visit = repo.create_visit(
+                condition["id"],
+                date=next_date.isoformat(),
+                care_setting=upcoming["care_setting"],
+                clinician_name=upcoming["clinician_name"],
+                organisation=upcoming["organisation"],
+                organisation_address=upcoming["organisation_address"],
+                transcript="",
+                summary=None,
+                previous_brief_id=previous["id"] if previous else None,
+            )
+            repo.create_events(
+                [
+                    ev.to_row(
+                        ev.Event(
+                            kind="visit",
+                            label=f"{upcoming['reason']} — {upcoming['clinician_name']}",
+                            occurred_at=next_date,
+                            precision="day",
+                            source="derived",
+                            recorded_at=date_cls.today(),
+                        ),
+                        condition_id=condition["id"],
+                        visit_id=next_visit["id"],
+                    )
+                ]
+            )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"\nnext visit {next_date.isoformat()} "
+                    f"(in {upcoming['days_before_today']} days) — "
+                    f"{upcoming['clinician_name']}, {upcoming['organisation']}; "
+                    f"previous brief: {previous['id'] if previous else 'none yet'}"
+                )
+            )
+
         still_open = repo.get_open_commitments(condition["id"])
         self.stdout.write(
             self.style.SUCCESS(
@@ -333,9 +398,45 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"\nDone. Condition {condition['id']} ({condition['name']}), "
-                f"consultation {visit_date.isoformat()}.\n"
-                f"Generate the brief with: POST /api/brief {{\"condition_id\": \"{condition['id']}\"}}"
+                f"consultation {visit_date.isoformat()}"
+                + (f", next appointment {next_visit['date']}." if next_visit else ".")
+                + f"\nGenerate the brief with: POST /api/brief {{\"condition_id\": \"{condition['id']}\"}}"
             )
+        )
+
+    # The tables this command writes that arrived in a later migration, and the
+    # file that creates them. Checked up front because the failure otherwise
+    # lands halfway through the replay: some calls written, the medication
+    # thread missing, and a raw PostgREST "Could not find the table" to read
+    # under demo pressure. The migrations are applied by hand against Supabase,
+    # so drifting behind them is an ordinary thing to do, not a mistake worth a
+    # stack trace.
+    REQUIRED_TABLES = {
+        "medications": "20260727100000_medications_and_caretaker_context.sql",
+        "caretaker_context": "20260727100000_medications_and_caretaker_context.sql",
+    }
+
+    def _require_tables(self):
+        from ...supabase_client import get_supabase
+
+        sb = get_supabase()
+        missing = {}
+        for table, migration in self.REQUIRED_TABLES.items():
+            try:
+                sb.table(table).select("*").limit(1).execute()
+            except Exception:
+                missing[table] = migration
+
+        if not missing:
+            return
+
+        files = sorted(set(missing.values()))
+        raise CommandError(
+            "Missing table(s): "
+            + ", ".join(sorted(missing))
+            + ".\nApply the migration(s) before seeding — paste into the Supabase "
+            "SQL editor:\n"
+            + "\n".join(f"  supabase/migrations/{f}" for f in files)
         )
 
     def _apply(self, med, updates: dict):
