@@ -123,17 +123,20 @@ def _group_into_utterances(words) -> list[Utterance]:
     return [u for u in utterances if u.text]
 
 
-def transcribe_file(
-    audio_path: str | Path,
+def transcribe_audio(
+    audio,
+    filename: str = "audio.mp3",
     *,
     num_speakers: int | None = 2,
     language_code: str | None = "eng",
     keyterms: list[str] | None = None,
 ) -> Transcript:
-    """Transcribe a recorded visit.
+    """Transcribe a recorded visit from an open binary stream.
 
     Args:
-        audio_path: Audio file to transcribe.
+        audio: File-like object opened in binary mode (an upload, or an open
+            file). Not closed by this function.
+        filename: Name used to derive the content type.
         num_speakers: Expected speaker count. A consultation is usually two
             (doctor, patient); pass None to let Scribe decide.
         language_code: ISO code, or None to auto-detect.
@@ -142,10 +145,6 @@ def transcribe_file(
     Returns:
         A Transcript with speaker-labelled utterances.
     """
-    path = Path(audio_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"No audio file at {path}")
-
     # Posted as multipart rather than through the SDK: the SDK JSON-encodes
     # `keyterms` into a single form value, which the API rejects (the literal
     # brackets and quotes read as forbidden characters in one long keyterm).
@@ -164,16 +163,15 @@ def transcribe_file(
     # A list value makes httpx emit one form field per item.
     form["keyterms"] = list(keyterms if keyterms is not None else VISIT_KEYTERMS)
 
-    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-    with path.open("rb") as audio:
-        response = httpx.post(
-            STT_URL,
-            headers={"xi-api-key": _api_key()},
-            files={"file": (path.name, audio, content_type)},
-            data=form,
-            timeout=600,
-        )
+    response = httpx.post(
+        STT_URL,
+        headers={"xi-api-key": _api_key()},
+        files={"file": (filename, audio, content_type)},
+        data=form,
+        timeout=600,
+    )
     response.raise_for_status()
     result = response.json()
 
@@ -182,6 +180,16 @@ def transcribe_file(
         utterances=_group_into_utterances(_field(result, "words")),
         language_code=_field(result, "language_code"),
     )
+
+
+def transcribe_file(audio_path: str | Path, **kwargs) -> Transcript:
+    """Transcribe a recorded visit from a path on disk."""
+    path = Path(audio_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"No audio file at {path}")
+
+    with path.open("rb") as audio:
+        return transcribe_audio(audio, path.name, **kwargs)
 
 
 def main() -> None:
