@@ -49,6 +49,10 @@
             "minimum": 0,
             "description": "The earliest week this is worth asking. Asking about a seven-week blood test in week one wastes a question on a patient whose scarcest resource is attention."
           },
+          "from_day": {
+            "type": ["integer", "null"],
+            "description": "The earliest day this is worth asking, for items that belong to the day-after first contact rather than to a week of the interval — collection, first dose, the daily reminder time, anything unclear from the consultation. Takes precedence over from_week when set, so a first-contact item is due on day 1 without becoming due for every later call in week 0."
+          },
           "until_week": {
             "type": ["integer", "null"],
             "description": "After this week the item stops being worth asking, or null if it stands for the whole interval."
@@ -78,7 +82,7 @@
     },
     "call_schedule": {
       "type": "array",
-      "description": "When to call across the interval, and what each call is mainly for. Weeks are relative to the visit date.",
+      "description": "When to call across the interval, and what each call is mainly for. Weeks are relative to the visit date. The first entry should almost always be the day-after first contact (week 0, day 1), which confirms the plan is real and workable before any of the rest of the interval depends on it.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -86,8 +90,12 @@
         "properties": {
           "week": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Weeks after the visit."
+            "minimum": 0,
+            "description": "Weeks after the visit. 0 is the week of the consultation itself, which is when the day-after first contact falls; use `day` to place a call inside it."
+          },
+          "day": {
+            "type": ["integer", "null"],
+            "description": "Days after the visit, when a call needs finer placement than a week — the day-after first contact is day 1, and an early adherence check is around day 5. Null means the call sits anywhere in its week."
           },
           "focus": {
             "type": "string",

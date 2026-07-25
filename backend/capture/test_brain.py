@@ -951,3 +951,522 @@ class AttributedSpeechTests(SimpleTestCase):
             self.assertEqual(
                 safety.check_utterance(line, allow_attributed=True), [], flag["id"]
             )
+
+
+# --- The medication thread ------------------------------------------------
+#
+# Everything below is the second thread a consultation opens when it prescribes
+# something. It runs on days rather than weeks and has its own sequence of
+# failure points, none of them clinical: the prescription is never collected,
+# the first dose is never taken, the label says something the patient was not
+# told, the daily time is never set. What is tested here is that the thread
+# reports each of those honestly and never fills a gap by inference — the one
+# failure mode that would turn a record into a fabrication.
+
+
+def _med(**overrides):
+    """A medication with everything stated, so tests can remove one thing.
+
+    Built complete and then broken deliberately: a test that starts from an
+    empty medication proves nothing about which field it was that mattered.
+    """
+    from capture.medication import Medication, Source, Value
+
+    base = dict(
+        name=Value("Levothyroxine", Source.CLINICIAN),
+        dosage=Value("25mcg", Source.CLINICIAN),
+        frequency=Value("once daily", Source.CLINICIAN),
+        duration=Value("ongoing", Source.CLINICIAN),
+        instructions=Value("On an empty stomach", Source.CLINICIAN),
+    )
+    base.update(overrides)
+    return Medication(**base)
+
+
+class MedicationFromSummaryTests(SimpleTestCase):
+    """What the consultation actually left behind, vagueness included."""
+
+    def test_a_consultation_that_prescribed_nothing_opens_no_thread(self):
+        """The brief is explicit: no prescription, no medication threads."""
+        from capture.medication import from_summary
+
+        self.assertEqual(from_summary({"medications": []}), [])
+        self.assertEqual(from_summary({}), [])
+
+    def test_every_field_from_the_visit_is_attributed_to_the_clinician(self):
+        from capture.medication import Source, from_summary
+
+        med = from_summary(_summary())[0]
+        for field_name in ("name", "dosage", "frequency", "duration", "instructions"):
+            self.assertIs(getattr(med, field_name).source, Source.CLINICIAN, field_name)
+
+    def test_the_demo_consultations_very_low_dose_is_a_gap_not_a_dose(self):
+        """The exact case the pharmacy label exists to resolve.
+
+        "A very low dose" is authoritative — a doctor said it — and unusable:
+        no reminder can be built from it. Both must be true at once, which is
+        why provenance and stated-ness are separate questions.
+        """
+        from capture.medication import from_summary
+
+        med = from_summary(_summary())[0]
+        self.assertFalse(med.dosage.is_stated)
+        self.assertIn("dosage", med.gaps)
+
+    def test_a_qualifier_carrying_a_number_is_a_real_dose(self):
+        """"Low dose, 25mcg" is stated; throwing it away would be the worse error."""
+        from capture.medication import Source, Value
+
+        self.assertTrue(Value("low dose, 25mcg", Source.CLINICIAN).is_stated)
+
+    def test_the_summarisers_own_hedge_is_recognised_as_a_gap(self):
+        from capture.medication import Source, Value
+
+        hedge = Value("unclear — please confirm with your doctor", Source.CLINICIAN)
+        self.assertFalse(hedge.is_stated)
+
+    def test_an_empty_duration_is_not_a_reminder_gap(self):
+        """Labels routinely omit it for a repeat; chasing a photo for it is noise."""
+        from capture.medication import Source, Value
+
+        med = _med(duration=Value("", Source.CLINICIAN))
+        self.assertEqual(med.gaps, [])
+        self.assertTrue(med.is_complete)
+
+
+class MedicationLabelTests(SimpleTestCase):
+    """The label fills gaps. It never overwrites, and never counts unconfirmed."""
+
+    def test_a_label_fills_a_gap_the_consultation_left(self):
+        from capture.medication import Source, Value, apply_label
+
+        med = _med(dosage=Value("very low dose", Source.CLINICIAN))
+        filled = apply_label(med, {"dosage": "25mcg"})
+        self.assertEqual(filled.dosage.text, "25mcg")
+        self.assertIs(filled.dosage.source, Source.LABEL)
+
+    def test_a_label_never_overwrites_what_the_clinician_stated(self):
+        """Silently preferring either side would hide a real discrepancy."""
+        from capture.medication import apply_label
+
+        filled = apply_label(_med(), {"dosage": "50mcg"})
+        self.assertEqual(filled.dosage.text, "25mcg")
+
+    def test_a_disagreement_is_recorded_for_the_patient_to_raise(self):
+        from capture.medication import apply_label
+
+        filled = apply_label(_med(), {"dosage": "50mcg"})
+        note = " ".join(filled.notes)
+        self.assertIn("50mcg", note)
+        self.assertIn("25mcg", note)
+
+    def test_a_label_value_is_pending_until_the_patient_agrees(self):
+        """A misread label must not quietly become what they are told to take."""
+        from capture.medication import Confirmation, Source, Value, apply_label
+
+        med = _med(dosage=Value("", Source.CLINICIAN))
+        filled = apply_label(med, {"dosage": "25mcg"})
+        self.assertIs(filled.dosage.confirmation, Confirmation.PENDING)
+        self.assertFalse(filled.dosage.is_usable)
+        self.assertIn("dosage", filled.gaps)
+
+    def test_confirming_makes_it_usable(self):
+        from capture.medication import Source, Value, apply_label, confirm_label
+
+        med = _med(dosage=Value("", Source.CLINICIAN))
+        settled = confirm_label(apply_label(med, {"dosage": "25mcg"}), accepted=True)
+        self.assertTrue(settled.dosage.is_usable)
+        self.assertEqual(settled.gaps, [])
+
+    def test_rejecting_reopens_the_gap_rather_than_keeping_a_wrong_value(self):
+        """A value the patient says is wrong is worse than none: it looks filled."""
+        from capture.medication import Source, Value, apply_label, confirm_label
+
+        med = _med(dosage=Value("", Source.CLINICIAN))
+        settled = confirm_label(apply_label(med, {"dosage": "25mcg"}), accepted=False)
+        self.assertEqual(settled.dosage.text, "")
+        self.assertIn("dosage", settled.gaps)
+
+    def test_a_label_photo_is_only_asked_for_once_they_have_the_label(self):
+        """A photo of a prescription still at the pharmacy does not exist."""
+        from capture.medication import Collection, Source, Value
+
+        med = _med(dosage=Value("", Source.CLINICIAN))
+        self.assertFalse(replace_collection(med, Collection.NOT_COLLECTED).needs_label_photo)
+        self.assertTrue(replace_collection(med, Collection.COLLECTED).needs_label_photo)
+
+    def test_a_complete_medication_is_never_asked_for_a_photo(self):
+        from capture.medication import Collection
+
+        self.assertFalse(replace_collection(_med(), Collection.COLLECTED).needs_label_photo)
+
+
+def replace_collection(med, collection):
+    from dataclasses import replace
+
+    return replace(med, collection=collection)
+
+
+class MedicationAttributionTests(SimpleTestCase):
+    """Three sources that must never be presented as each other."""
+
+    def test_each_source_is_named_when_a_value_is_spoken(self):
+        from capture.medication import Source, Value
+
+        self.assertIn("your clinician", Value("25mcg", Source.CLINICIAN).attributed())
+        self.assertIn("pharmacy label", Value("25mcg", Source.LABEL).attributed())
+        self.assertIn("not from your clinician", Value("x", Source.GENERAL).attributed())
+
+    def test_a_gap_is_reported_as_not_stated_rather_than_guessed_at(self):
+        from capture.medication import Source, Value
+
+        self.assertEqual(Value("", Source.CLINICIAN).attributed(), "not stated")
+
+
+class MedicationTaskTests(SimpleTestCase):
+    """Sequencing: nothing is asked before it could possibly have an answer."""
+
+    def test_collection_is_the_only_thing_asked_before_it_is_collected(self):
+        """Asking about doses and times first wastes the call on hypotheticals."""
+        from capture.medication import due_tasks
+
+        kinds = {t.kind for t in due_tasks([_med()], day=1)}
+        self.assertEqual(kinds, {"collect"})
+
+    def test_once_collected_the_first_dose_and_the_time_are_asked(self):
+        from capture.medication import Collection, due_tasks
+
+        med = replace_collection(_med(), Collection.COLLECTED)
+        kinds = {t.kind for t in due_tasks([med], day=1)}
+        self.assertIn("first_dose", kinds)
+        self.assertIn("reminder_time", kinds)
+
+    def test_chasing_a_collection_stops_before_it_becomes_nagging(self):
+        from capture.medication import COLLECTION_CHASE_DAYS, due_tasks
+
+        self.assertTrue(due_tasks([_med()], day=COLLECTION_CHASE_DAYS))
+        self.assertEqual(due_tasks([_med()], day=COLLECTION_CHASE_DAYS + 1), [])
+
+    def test_the_adherence_check_waits_for_something_to_report(self):
+        from capture.medication import ADHERENCE_CHECK_DAYS, Collection, due_tasks
+        from dataclasses import replace
+
+        med = replace(
+            _med(),
+            collection=Collection.COLLECTED,
+            first_dose_taken=True,
+            reminder_time="07:30",
+        )
+        early = {t.kind for t in due_tasks([med], day=ADHERENCE_CHECK_DAYS - 1)}
+        due = {t.kind for t in due_tasks([med], day=ADHERENCE_CHECK_DAYS)}
+        self.assertNotIn("adherence", early)
+        self.assertIn("adherence", due)
+
+    def test_a_pending_label_is_read_back_rather_than_photographed_again(self):
+        from capture.medication import (
+            Collection, Source, Value, apply_label, due_tasks,
+        )
+        from dataclasses import replace
+
+        med = replace(
+            _med(dosage=Value("", Source.CLINICIAN)),
+            collection=Collection.COLLECTED,
+            first_dose_taken=True,
+        )
+        pending = apply_label(med, {"dosage": "25mcg"})
+        kinds = {t.kind for t in due_tasks([pending], day=2)}
+        self.assertIn("confirm_label", kinds)
+        self.assertNotIn("label_photo", kinds)
+
+    def test_nothing_prescribed_means_nothing_to_do(self):
+        from capture.medication import due_tasks
+
+        self.assertEqual(due_tasks([], day=1), [])
+
+
+class DailyReminderTests(SimpleTestCase):
+    """The daily nudge says only what it actually knows."""
+
+    def _ready(self, **overrides):
+        from dataclasses import replace
+
+        return replace(_med(), reminder_time="07:30", **overrides)
+
+    def test_a_reminder_names_the_dose_it_was_given(self):
+        from capture.medication import daily_reminder
+
+        line = daily_reminder(self._ready())
+        self.assertIn("Levothyroxine", line)
+        self.assertIn("25mcg", line)
+
+    def test_the_clinicians_timing_instruction_is_attributed_to_them(self):
+        from capture.medication import daily_reminder
+
+        self.assertIn("Your clinician said", daily_reminder(self._ready()))
+
+    def test_no_reminder_is_sent_while_a_gap_remains(self):
+        """A reminder that cannot name the dose would have to invent one."""
+        from capture.medication import Source, Value, daily_reminder
+
+        self.assertEqual(daily_reminder(self._ready(dosage=Value("", Source.CLINICIAN))), "")
+
+    def test_no_reminder_is_sent_before_a_time_is_chosen(self):
+        from capture.medication import daily_reminder
+
+        self.assertEqual(daily_reminder(_med()), "")
+
+    def test_a_reminder_never_adds_a_timing_rule_the_clinician_did_not_give(self):
+        from capture.medication import Source, Value, daily_reminder
+
+        line = daily_reminder(self._ready(instructions=Value("", Source.CLINICIAN)))
+        self.assertNotIn("clinician said", line)
+        self.assertNotIn("empty stomach", line)
+
+    def test_every_reminder_passes_the_safety_filter(self):
+        """It names a drug and a dose, which is where that filter is strictest."""
+        from capture.medication import daily_reminder
+
+        self.assertEqual(safety.check_utterance(daily_reminder(self._ready())), [])
+
+
+class MedicationObservationTests(SimpleTestCase):
+    """Facts for the brief — the same no-conclusions contract as interval.py."""
+
+    def test_a_missed_dose_is_reported_without_being_graded(self):
+        from capture.medication import Adherence, observations
+        from dataclasses import replace
+
+        lines = observations([replace(_med(), adherence=Adherence.MISSED_MORE)])
+        self.assertTrue(any("missing more than one dose" in l for l in lines))
+
+    def test_an_unestablished_collection_is_distinguished_from_a_refusal(self):
+        """"We never asked" and "they have not" are different facts."""
+        from capture.medication import Collection, observations
+
+        never = observations([replace_collection(_med(), Collection.UNKNOWN)])
+        not_done = observations([replace_collection(_med(), Collection.NOT_COLLECTED)])
+        self.assertTrue(any("Never established" in l for l in never))
+        self.assertTrue(any("Not collected" in l for l in not_done))
+
+    def test_every_observation_passes_the_safety_filter(self):
+        from capture.medication import Adherence, Collection, observations
+        from dataclasses import replace
+
+        med = replace(
+            _med(),
+            collection=Collection.NOT_COLLECTED,
+            first_dose_taken=False,
+            adherence=Adherence.STOPPED,
+        )
+        for line in observations([med]):
+            self.assertEqual(safety.check_utterance(line), [], line)
+
+    def test_observations_of_the_demo_consultation_name_its_real_gap(self):
+        from capture.medication import from_summary, observations
+
+        lines = observations(from_summary(_summary()))
+        self.assertTrue(any("did not state" in l and "dosage" in l for l in lines))
+
+
+class MedicationAgentBriefTests(SimpleTestCase):
+    """What the agent is shown, and what it must not be shown."""
+
+    def test_an_interval_with_no_prescription_gets_no_medication_section(self):
+        """An agent shown an empty heading will find something to ask about it."""
+        from capture.medication import as_agent_brief
+
+        self.assertEqual(as_agent_brief([], day=1), "")
+
+    def test_a_gap_is_shown_as_a_gap_with_the_rule_against_inferring_it(self):
+        from capture.medication import as_agent_brief, from_summary
+
+        rendered = as_agent_brief(from_summary(_summary()), day=1)
+        self.assertIn("not established", rendered)
+        self.assertIn("never infer", rendered)
+
+    def test_the_brief_shows_provenance_for_every_value(self):
+        from capture.medication import as_agent_brief
+
+        self.assertIn("as your clinician said", as_agent_brief([_med()], day=1))
+
+    def test_tasks_are_rendered_as_aims_not_as_questions(self):
+        """An agent handed sentences reads them out; the plan's rule holds here."""
+        from capture.medication import as_agent_brief
+
+        rendered = as_agent_brief([_med()], day=1)
+        self.assertIn("aims, not questions", rendered)
+        self.assertNotIn("?", rendered)
+
+
+class FirstContactTests(SimpleTestCase):
+    """Day one is a different call, not an early version of the same one."""
+
+    def _prompt(self, day):
+        from capture.checkin import _build_system_prompt
+        from capture.medication import from_summary
+
+        return _build_system_prompt(
+            _facts(today=VISIT),
+            load_context(),
+            None,
+            from_summary(_summary()),
+            day,
+        )
+
+    def test_the_day_after_call_is_told_nothing_has_happened_yet(self):
+        """The interval persona would ask a patient with no interval how it went."""
+        prompt = self._prompt(1)
+        self.assertIn("the day after their appointment", prompt)
+        self.assertIn("Nothing has happened yet", prompt)
+
+    def test_a_later_call_keeps_the_interval_persona(self):
+        prompt = self._prompt(30)
+        self.assertIn("phoning a patient between appointments", prompt)
+        self.assertNotIn("Nothing has happened yet", prompt)
+
+    def test_an_ordinary_check_in_with_no_day_is_unchanged(self):
+        """Every caller written before first contact existed must still work."""
+        prompt = self._prompt(None)
+        self.assertIn("phoning a patient between appointments", prompt)
+
+    def test_the_first_contact_call_must_not_end_without_the_reminder_time(self):
+        """Everything downstream depends on it and nothing else will ask."""
+        from capture.checkin import FIRST_CONTACT_FRAMING
+
+        self.assertIn("do not end the call without it", FIRST_CONTACT_FRAMING)
+
+    def test_both_personas_carry_the_same_boundary_rules(self):
+        """A second copy of the safety rules is a second copy to drift."""
+        from capture.checkin import FIRST_CONTACT_PROMPT, SHARED_RULES, SYSTEM_PROMPT
+
+        self.assertIn(SHARED_RULES, SYSTEM_PROMPT)
+        self.assertIn(SHARED_RULES, FIRST_CONTACT_PROMPT)
+        self.assertIn("Never diagnose", FIRST_CONTACT_PROMPT)
+
+    def test_explaining_the_clinician_is_permitted_and_answering_is_not(self):
+        """The one place the brief is looser than the interval prompt was."""
+        from capture.checkin import FIRST_CONTACT_PROMPT
+
+        self.assertIn("plainer terms", FIRST_CONTACT_PROMPT)
+        self.assertIn("one for their doctor", FIRST_CONTACT_PROMPT)
+
+    def test_a_prescriptionless_consultation_gets_no_medication_section(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=VISIT), load_context(), None, [], 1
+        )
+        self.assertNotIn("=== THE MEDICATION THREAD ===", prompt)
+
+    def test_the_record_knows_which_call_was_the_first_contact(self):
+        from capture.checkin import CheckIn
+
+        empty = {"outcomes": [], "unprompted_reports": [], "questions_for_doctor": []}
+        self.assertTrue(CheckIn(data=empty, day=1).is_first_contact)
+        self.assertFalse(CheckIn(data=empty, day=14).is_first_contact)
+        self.assertFalse(CheckIn(data=empty, day=None).is_first_contact)
+
+
+class PlanDayEligibilityTests(SimpleTestCase):
+    """Day-placed items are the first contact's; they must not leak into week 0.
+
+    Both a day-1 item and a week-0 item are "week 0" by week arithmetic alone,
+    and only one of them is worth asking on any given call. Getting this wrong
+    puts "have you collected the prescription" into a week-six call, or drops it
+    from day one entirely.
+    """
+
+    def test_a_from_day_item_is_due_on_its_day(self):
+        plan = _plan([_item("collected", from_week=0)])
+        plan.items[0]["from_day"] = 1
+        self.assertEqual([i["id"] for i in plan.due_items(0, day=1)], ["collected"])
+
+    def test_a_from_day_item_is_not_due_before_it(self):
+        plan = _plan([_item("collected", from_week=0)])
+        plan.items[0]["from_day"] = 1
+        self.assertEqual(plan.due_items(0, day=0), [])
+
+    def test_from_day_takes_precedence_over_from_week(self):
+        """Otherwise from_week=0 makes it due on the day of the consultation."""
+        plan = _plan([_item("collected", from_week=0)])
+        plan.items[0]["from_day"] = 5
+        self.assertEqual(plan.due_items(0, day=1), [])
+
+    def test_a_week_only_caller_still_sees_from_day_items(self):
+        """Day is derived from the week when absent, so nothing silently vanishes."""
+        plan = _plan([_item("collected", from_week=0)])
+        plan.items[0]["from_day"] = 1
+        self.assertEqual([i["id"] for i in plan.due_items(2)], ["collected"])
+
+    def test_an_until_week_still_retires_a_from_day_item(self):
+        plan = _plan([_item("collected", from_week=0, until_week=2)])
+        plan.items[0]["from_day"] = 1
+        self.assertEqual([i["id"] for i in plan.due_items(2, day=14)], ["collected"])
+        self.assertEqual(plan.due_items(3, day=21), [])
+
+    def test_ordinary_week_items_are_untouched_by_the_day_arithmetic(self):
+        plan = _plan([_item("blood_test", from_week=7)])
+        self.assertEqual(plan.due_items(6), [])
+        self.assertEqual([i["id"] for i in plan.due_items(7)], ["blood_test"])
+
+
+class FirstContactScheduleTests(SimpleTestCase):
+    """Finding the day-after call in a schedule that may not have one."""
+
+    def test_a_day_placed_call_is_found_as_the_first_contact(self):
+        plan = _plan(schedule=[
+            {"week": 0, "day": 1, "focus": "confirm the plan", "item_ids": []},
+            {"week": 2, "focus": "started?", "item_ids": []},
+        ])
+        self.assertEqual(plan.first_contact["focus"], "confirm the plan")
+
+    def test_an_interval_that_planned_no_first_contact_has_none(self):
+        """Not "the first entry" — that would pick up an ordinary week-two call."""
+        plan = _plan(schedule=[{"week": 2, "focus": "started?", "item_ids": []}])
+        self.assertIsNone(plan.first_contact)
+
+    def test_the_day_after_call_gets_its_own_focus_not_week_zeros(self):
+        from capture.plan import as_agent_brief
+
+        plan = _plan(
+            [_item("collected", from_week=0)],
+            schedule=[
+                {"week": 0, "day": 1, "focus": "confirm the plan is workable",
+                 "item_ids": []},
+                {"week": 0, "focus": "something else entirely", "item_ids": []},
+            ],
+        )
+        rendered = as_agent_brief(plan, week=0, day=1)
+        self.assertIn("confirm the plan is workable", rendered)
+        self.assertNotIn("something else entirely", rendered)
+
+
+class PlannerInputTests(SimpleTestCase):
+    """What the planner is shown about medication and follow-up."""
+
+    def test_a_prescriptionless_consultation_is_told_to_plan_no_med_items(self):
+        from capture.plan import _drug_lines
+
+        lines = _drug_lines({"medications": []}, load_context())
+        self.assertIn("nothing was prescribed", lines)
+        self.assertIn("no medication items", lines)
+
+    def test_a_vague_dose_is_surfaced_to_the_planner_as_a_label_gap(self):
+        from capture.plan import _drug_lines
+
+        lines = _drug_lines(_summary(), load_context())
+        self.assertIn("dosage", lines)
+        self.assertIn("never something to infer", lines)
+
+    def test_a_stated_follow_up_is_shown_with_what_to_do_about_it(self):
+        from capture.plan import _follow_up_lines
+
+        lines = _follow_up_lines(_summary())
+        self.assertIn("three months", lines)
+        self.assertIn("booked", lines)
+
+    def test_an_absent_follow_up_is_stated_so_none_is_invented(self):
+        from capture.plan import _follow_up_lines
+
+        lines = _follow_up_lines({"future_plan": {"follow_up_needed": False}})
+        self.assertIn("do not invent one", lines)

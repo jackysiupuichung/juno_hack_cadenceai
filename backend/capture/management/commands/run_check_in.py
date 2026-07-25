@@ -15,7 +15,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from capture import simulate
+from capture import checkin, medication, simulate
 from capture.checkin import CheckInError, run_check_in
 from capture.interval import (
     IntervalError,
@@ -55,6 +55,15 @@ class Command(BaseCommand):
             help="Weeks into the interval, when no visit date is given. Default: 6.",
         )
         parser.add_argument(
+            "--day",
+            type=int,
+            default=None,
+            help=(
+                "Days into the interval. Overrides --week and selects the "
+                "day-after first contact when 0 or 1."
+            ),
+        )
+        parser.add_argument(
             "--check-ins",
             nargs="*",
             default=[],
@@ -82,10 +91,19 @@ class Command(BaseCommand):
             if options["today"]
             else date.today()
         )
-        visit_date = (
-            datetime.strptime(options["visit_date"], "%Y-%m-%d").date()
-            if options["visit_date"]
-            else today - timedelta(weeks=options["week"])
+        if options["visit_date"]:
+            visit_date = datetime.strptime(options["visit_date"], "%Y-%m-%d").date()
+        elif options["day"] is not None:
+            visit_date = today - timedelta(days=options["day"])
+        else:
+            visit_date = today - timedelta(weeks=options["week"])
+
+        # Only carried when it says something a week cannot. An ordinary week-six
+        # check-in has no meaningful day, and stamping one on the record would be
+        # false precision the brief would then have to reason about.
+        elapsed = medication.days_since(visit_date, today)
+        day = options["day"] if options["day"] is not None else (
+            elapsed if elapsed <= medication.ADHERENCE_CHECK_DAYS else None
         )
 
         prior = []
@@ -104,15 +122,31 @@ class Command(BaseCommand):
         except IntervalError as exc:
             raise CommandError(str(exc)) from exc
 
+        medications = medication.from_summary(summary)
         patient = self._patient(options)
 
-        self.stdout.write(
-            self.style.MIGRATE_HEADING(
-                f"Week {facts.week} of the interval "
-                f"({facts.visit_date} → {facts.today}), "
-                f"{len(facts.open_commitments)} open commitment(s)"
+        if day is not None and day <= checkin.FIRST_CONTACT_MAX_DAY:
+            self.stdout.write(
+                self.style.MIGRATE_HEADING(
+                    f"Day {day} — first contact after the consultation "
+                    f"({facts.visit_date} → {facts.today}), "
+                    f"{len(medications)} medication(s) prescribed"
+                )
             )
-        )
+        else:
+            self.stdout.write(
+                self.style.MIGRATE_HEADING(
+                    f"Week {facts.week} of the interval "
+                    f"({facts.visit_date} → {facts.today}), "
+                    f"{len(facts.open_commitments)} open commitment(s)"
+                )
+            )
+
+        for med in medications:
+            if med.gaps:
+                self.stdout.write(
+                    f"  {med.display_name}: not established — {', '.join(med.gaps)}"
+                )
         if isinstance(patient, simulate.LlmPatient) and patient.hidden_symptoms:
             self.stdout.write("Patient is withholding, unless asked directly:")
             for symptom in patient.hidden_symptoms:
@@ -125,20 +159,27 @@ class Command(BaseCommand):
                 context=context,
                 patient=patient,
                 max_turns=options["max_turns"],
+                medications=medications,
+                day=day,
             )
         except CheckInError as exc:
             raise CommandError(str(exc)) from exc
 
         self._report(check_in, patient)
 
-        out = Path(options["out"]) if options["out"] else summary_path.with_suffix(
-            f".checkin-w{facts.week}.json"
-        )
+        if options["out"]:
+            out = Path(options["out"])
+        elif check_in.is_first_contact:
+            out = summary_path.with_suffix(".checkin-d1.json")
+        else:
+            out = summary_path.with_suffix(f".checkin-w{facts.week}.json")
         out.write_text(
             json.dumps(
                 {
                     "_meta": {
                         "week": check_in.week,
+                        "day": check_in.day,
+                        "first_contact": check_in.is_first_contact,
                         "visit_date": facts.visit_date.isoformat(),
                         "date": facts.today.isoformat(),
                         "ended_because": check_in.ended_because,

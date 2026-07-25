@@ -39,6 +39,7 @@ import anthropic
 import openai
 from dotenv import load_dotenv
 
+from . import medication
 from .interval import IntervalFacts, commitment_id
 
 load_dotenv()
@@ -84,11 +85,42 @@ wastes a question on someone whose scarcest resource is attention.
 - Cite your grounding in context_ids and commitment_ids. An item that cites \
 nothing had better come from something explicit in the appointment.
 
+The day-after first contact:
+- Unless nothing at all was agreed, the interval opens with a short call the \
+day after the consultation. Schedule it with week 0 and day 1, and give its \
+items from_day rather than from_week so they are due then and not for the rest \
+of week 0.
+- It confirms the plan is real and workable. It does not assess anything. If \
+something was prescribed: has it been collected, has the first dose been taken, \
+what does the label actually say, what time each day will they take it. \
+Whatever was agreed: is anything about the instructions unclear, and is there \
+anything from the consultation they did not understand.
+- Set the daily reminder time here. Everything downstream depends on it and \
+nothing else in the interval will think to ask.
+
+The medication thread:
+- Only if something was actually prescribed. Not every consultation results in \
+a prescription; when there is none, plan no medication items at all and spend \
+the interval on symptoms, follow-up and appointment preparation instead.
+- Where the consultation left a dose, frequency or duration unstated or vague, \
+plan to fill it from the pharmacy label rather than from anything else. The \
+item is to get the label photographed and its values read back for confirmation \
+— never to infer the value from the drug, from what is usual, or from the other \
+fields.
+- Plan an adherence check a few days after the first dose: taking it daily, \
+missed doses, anything making it hard. Early enough that a problem is still \
+fixable.
+- If it has not been collected, plan to check back rather than to press. \
+Repeat sensibly and stop; chasing past a fortnight is pressure, not care.
+
 The call schedule:
-- Few calls, well placed. This person tires easily. Three or four across a \
-seven-week interval is generous; more is a burden, not diligence.
+- Few calls, well placed. This person tires easily. The day-after contact plus \
+three or four across a seven-week interval is generous; more is a burden, not \
+diligence.
 - Place calls where something will have changed — after a test was due, after \
 the point where a side effect would show, before the next appointment.
+- If the consultation named a follow-up appointment, place a call before it is \
+due to establish whether it has been booked, and another to confirm it was.
 
 What you must not do:
 - Never plan to give advice. No item may aim to tell the patient what to do \
@@ -131,20 +163,38 @@ class CheckInPlan:
     def reasoning(self) -> str:
         return self.data.get("reasoning", "")
 
-    def due_items(self, week: int) -> list[dict]:
-        """Agenda items eligible this week, most important first.
+    def due_items(self, week: int, day: int | None = None) -> list[dict]:
+        """Agenda items eligible now, most important first.
 
-        Eligibility is arithmetic over from_week/until_week, so it is decided
-        here rather than by the agent — the same division as everywhere else in
-        this codebase. The agent still chooses which of the eligible items to
-        actually spend its turns on.
+        Eligibility is arithmetic over from_week/from_day/until_week, so it is
+        decided here rather than by the agent — the same division as everywhere
+        else in this codebase. The agent still chooses which of the eligible
+        items to actually spend its turns on.
+
+        An item carrying `from_day` is a first-contact item and is judged on
+        days, not weeks. That distinction is what keeps "have you collected the
+        prescription" out of a week-six call while still letting it be due on
+        day one: both fall in week 0 by week arithmetic alone, and only one of
+        them is worth a question. When no day is supplied, from_day items are
+        placed at their week equivalent so week-only callers still see them.
         """
-        eligible = [
-            item
-            for item in self.items
-            if week >= item.get("from_week", 0)
-            and (item.get("until_week") is None or week <= item["until_week"])
-        ]
+        if day is None:
+            day = week * 7
+
+        eligible = []
+        for item in self.items:
+            from_day = item.get("from_day")
+            if from_day is not None:
+                if day < from_day:
+                    continue
+            elif week < item.get("from_week", 0):
+                continue
+
+            until_week = item.get("until_week")
+            if until_week is not None and week > until_week:
+                continue
+            eligible.append(item)
+
         return sorted(eligible, key=lambda i: i.get("priority", 3))
 
     def next_call_week(self, after_week: int) -> int | None:
@@ -153,6 +203,19 @@ class CheckInPlan:
             c["week"] for c in self.call_schedule if c.get("week", 0) > after_week
         )
         return weeks[0] if weeks else None
+
+    @property
+    def first_contact(self) -> dict | None:
+        """The day-after call, if the planner scheduled one.
+
+        Identified by its day rather than its position: a schedule is not
+        guaranteed ordered, and "the first entry" would silently pick up a
+        week-two call for an interval that never planned a first contact.
+        """
+        for call in self.call_schedule:
+            if call.get("day") is not None and call["day"] <= 1:
+                return call
+        return None
 
 
 @lru_cache(maxsize=1)
@@ -209,29 +272,61 @@ def _drug_lines(summary: dict, context: dict) -> str:
     exactly what the over-treatment patterns in the context hang off — the plan
     needs to see it to know those patterns are live at all.
     """
+    medications = medication.from_summary(summary)
+    if not medications:
+        return (
+            "  (nothing was prescribed at this consultation — plan no "
+            "medication items at all)"
+        )
+
     lines = []
-    for med in summary.get("medications") or []:
-        if isinstance(med, dict):
-            # Keys per visit_summary.schema.json. Dosage and duration are the
-            # fields the over-treatment patterns hang off, so they are shown
-            # even when the doctor stated them vaguely ("a very low dose") —
-            # the vagueness is itself something the interval may need to
-            # resolve, and hiding it would make the plan look better informed
-            # than it is.
-            detail = ", ".join(
-                str(med[k])
-                for k in ("dosage", "frequency", "duration", "instructions")
-                if med.get(k)
+    for med in medications:
+        # Dosage and duration are the fields the over-treatment patterns hang
+        # off, so they are shown even when the doctor stated them vaguely ("a
+        # very low dose") — the vagueness is itself something the interval must
+        # resolve, and hiding it would make the plan look better informed than
+        # it is. The gap line below is what turns that vagueness into an item.
+        detail = ", ".join(
+            getattr(med, k).text
+            for k in ("dosage", "frequency", "duration", "instructions")
+            if getattr(med, k).text
+        )
+        lines.append(f"  - {med.display_name}{(' — ' + detail) if detail else ''}")
+        if med.gaps:
+            lines.append(
+                f"      the consultation did not usably state its "
+                f"{', '.join(med.gaps)} — this is a label gap to plan for, "
+                "never something to infer"
             )
-            name = med.get("name", "")
-            lines.append(f"  - {name}{(' — ' + detail) if detail else ''}")
-        elif med:
-            lines.append(f"  - {med}")
 
     typical = context.get("condition", {}).get("typical_treatment", "")
     if typical:
         lines.append(f"  (usual treatment for this condition: {typical})")
-    return "\n".join(lines) or "  (none recorded)"
+    return "\n".join(lines)
+
+
+def _follow_up_lines(summary: dict) -> str:
+    """The follow-up appointment as the clinician stated it, or its absence.
+
+    Stated separately from the summary blob because the interval has to do
+    something about it — remind them to book it, confirm they have — and an
+    obligation buried in nested JSON is one the planner reads past. The absence
+    is stated just as plainly: an interval with no follow-up must not have one
+    invented for it.
+    """
+    plan = summary.get("future_plan") or {}
+    if not plan.get("follow_up_needed"):
+        return (
+            "  (the clinician did not call for a follow-up — do not invent one, "
+            "and plan no booking reminders)"
+        )
+    when = plan.get("date_or_timeframe") or "no timeframe stated"
+    purpose = plan.get("purpose") or "no purpose stated"
+    return (
+        f"  Needed: yes — {when}, {purpose}.\n"
+        "  Plan to establish whether it has been booked as that approaches, and "
+        "to confirm it once it has."
+    )
 
 
 def _build_user_content(summary: dict, context: dict, visit_date: str) -> str:
@@ -242,6 +337,8 @@ def _build_user_content(summary: dict, context: dict, visit_date: str) -> str:
         f"{_commitment_lines(summary)}\n\n"
         f"=== WHAT THEY ARE TAKING ===\n"
         f"{_drug_lines(summary, context)}\n\n"
+        f"=== THE FOLLOW-UP APPOINTMENT ===\n"
+        f"{_follow_up_lines(summary)}\n\n"
         f"=== CLINICAL CONTEXT FOR "
         f"{context.get('condition', {}).get('name', '').upper()} — "
         f"cite these ids in context_ids ===\n"
@@ -349,23 +446,36 @@ def build_plan(*, summary: dict, context: dict, visit_date: str) -> CheckInPlan:
     return CheckInPlan(data=_check_plan(data), raw=text, usage=usage)
 
 
-def as_agent_brief(plan: CheckInPlan, week: int) -> str:
+def as_agent_brief(plan: CheckInPlan, week: int, day: int | None = None) -> str:
     """The plan rendered for the check-in agent's system prompt.
 
-    Only the items eligible this week are shown, and they are shown as aims
-    rather than questions, because an agent handed a list of sentences reads
-    them out. Items not yet due are summarised as a count so the agent knows the
-    interval continues past this call and need not force everything into it.
+    Only the items eligible now are shown, and they are shown as aims rather
+    than questions, because an agent handed a list of sentences reads them out.
+    Items not yet due are summarised as a count so the agent knows the interval
+    continues past this call and need not force everything into it.
     """
     if not plan.items:
         return ""
 
-    due = plan.due_items(week)
+    due = plan.due_items(week, day)
     lines = [f"Goal for this interval: {plan.interval_goal}"]
 
-    focus = next(
-        (c["focus"] for c in plan.call_schedule if c.get("week") == week), ""
-    )
+    # A day-placed call is matched on its day, so the day-after contact picks up
+    # its own focus rather than whatever else was scheduled in week 0.
+    focus = ""
+    if day is not None:
+        focus = next(
+            (c["focus"] for c in plan.call_schedule if c.get("day") == day), ""
+        )
+    if not focus:
+        focus = next(
+            (
+                c["focus"]
+                for c in plan.call_schedule
+                if c.get("week") == week and c.get("day") is None
+            ),
+            "",
+        )
     if focus:
         lines.append(f"This call was planned for: {focus}")
 
@@ -396,7 +506,9 @@ def as_agent_brief(plan: CheckInPlan, week: int) -> str:
     return "\n".join(lines)
 
 
-def coverage(plan: CheckInPlan, covered: list[str], week: int) -> dict:
+def coverage(
+    plan: CheckInPlan, covered: list[str], week: int, day: int | None = None
+) -> dict:
     """Which planned items the calls actually reached, and which they missed.
 
     A planned item that no call ever covered is a finding in its own right — it
@@ -406,7 +518,7 @@ def coverage(plan: CheckInPlan, covered: list[str], week: int) -> dict:
     down in advance.
     """
     seen = set(covered)
-    due = plan.due_items(week)
+    due = plan.due_items(week, day)
     return {
         "covered": [item["id"] for item in due if item["id"] in seen],
         "missed": [item["id"] for item in due if item["id"] not in seen],
