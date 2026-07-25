@@ -13,6 +13,7 @@ urlpatterns = [
     path("checkin/session", views.checkin_session, name="checkin-session"),
     path("checkin", views.checkin, name="checkin"),
     path("plan", views.plan, name="plan"),
+    path("events", views.events, name="events"),
     path("brief", views.brief, name="brief"),
     path("ask", views.ask, name="ask"),
     path("reset", views.reset, name="reset"),

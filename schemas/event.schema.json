@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/event.schema.json",
+  "title": "Dated events",
+  "description": "Things that happened, with when they happened. Extracted from a consultation transcript or a check-in, alongside the outcomes and symptom mentions those stages already produce. The distinction from those: an outcome says a commitment was met, a symptom mention says a phrase was reported, and an event says WHEN. A patient who says 'I stopped taking it after about a fortnight' has given a date, and recording only the day they said it turns a chronology into a call log. The extraction is deliberately conservative — a timing nobody gave is not to be guessed at, because a specific date shown to a doctor is read as something the patient actually said.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "description": "Dated events found in this transcript. Empty when nothing was placed in time — which is common and correct. Do not manufacture events to fill the list.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "label", "occurred_at", "precision", "patient_words"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "medication_start",
+              "medication_stop",
+              "dose_change",
+              "test_taken",
+              "test_result",
+              "symptom_onset",
+              "symptom_resolved",
+              "appointment",
+              "other"
+            ],
+            "description": "What sort of thing happened. Use 'other' rather than forcing a poor fit."
+          },
+          "label": {
+            "type": "string",
+            "description": "One short phrase naming the event, in plain language — 'started levothyroxine', 'heart racing began'. Not a sentence."
+          },
+          "occurred_at": {
+            "type": ["string", "null"],
+            "description": "ISO 8601 date (YYYY-MM-DD) of the best estimate, or null when the patient placed it in time too vaguely to date at all. When they gave a relative time — 'a fortnight ago' — resolve it against the date of the conversation, which will be supplied to you, and set precision accordingly."
+          },
+          "precision": {
+            "type": "string",
+            "enum": ["exact", "day", "week", "month", "approx"],
+            "description": "How good the estimate is. 'day' for a named date, 'week' for 'about a fortnight ago', 'approx' for 'a while back'. Never claim more precision than the patient gave: a doctor reads a specific date as something they actually said."
+          },
+          "patient_words": {
+            "type": "string",
+            "description": "Their own words for the timing, quoted. 'just after the bank holiday' is more honest than any date derived from it, and the brief shows this alongside the estimate rather than replacing it."
+          },
+          "context_ids": {
+            "type": "array",
+            "description": "Ids from the disease context this relates to — a monitoring id for a test, a red_flag id for a symptom.",
+            "items": { "type": "string" }
+          },
+          "detail": {
+            "type": "string",
+            "description": "Anything else stated about the event that the label does not carry. Leave empty rather than elaborating."
+          }
+        }
+      }
+    }
+  }
+}

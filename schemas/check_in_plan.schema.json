@@ -5,8 +5,41 @@
   "description": "What the caretaker intends to find out across the interval a consultation opened, written once when the visit is summarised rather than improvised call by call. This is deliberately a plan and not a script: it fixes the agenda — which commitments and which clinical patterns are worth pursuing, and from which week — while leaving the wording, the ordering and the follow-ups to the agent on the call. Persisting it is what makes the interval auditable ahead of time rather than only in hindsight: the brief can report what was planned against what was actually asked, and a plan that never got covered is itself a finding.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["interval_goal", "items", "call_schedule", "reasoning"],
+  "required": ["interval_goal", "items", "call_schedule", "tracked_symptoms", "reasoning"],
   "properties": {
+    "tracked_symptoms": {
+      "type": "array",
+      "maxItems": 4,
+      "description": "The symptoms to score 1-10 on every call, chosen once from what the consultation raised and what the disease context says changes over this interval. Their wording is frozen here and reproduced verbatim by the agent on every call — the one place in this system the agent does not phrase things itself. That is the whole mechanism: a score is comparable with last month's score only if the question, the scale and the anchors were identical, so a reworded question silently breaks the series. Keep the set small; each one costs a turn on every call, and a patient asked six numbers stops giving considered ones. Empty is correct when the consultation raised nothing with a severity worth tracking.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "question", "context_id", "from_consultation"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "Stable slug keying this series across every call of the interval, e.g. \"tiredness\"."
+          },
+          "label": {
+            "type": "string",
+            "description": "Short name for a brief line or a chart axis, e.g. \"Tiredness\"."
+          },
+          "question": {
+            "type": "string",
+            "description": "The question, in the patient's own register, asked verbatim every call. Phrase it so 10 is the worst end on every tracker — ask about tiredness, not about energy — because the scale direction is fixed system-wide and a reversed item would be read the wrong way round. Do not include the scale anchors; they are appended identically to every tracker."
+          },
+          "context_id": {
+            "type": "string",
+            "description": "The check_in_probe, trajectory marker or red_flag id that justifies tracking this. \"\" only when it comes purely from what the patient described at the consultation."
+          },
+          "from_consultation": {
+            "type": "boolean",
+            "description": "True when the patient actually raised this at the appointment. A symptom they described themselves is the one they will answer thoughtfully about for months; one drawn only from the guideline is worth tracking but is a colder question."
+          }
+        }
+      }
+    },
     "interval_goal": {
       "type": "string",
       "description": "One sentence on what this interval has to establish before the next appointment, in plain language. The agent reads this to know what the call is ultimately for when the specific items run out."

@@ -260,6 +260,72 @@ def get_outcomes_for_commitments(commitment_ids: list[str]) -> list[dict]:
     )
 
 
+def create_events(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    sb = get_supabase()
+    return sb.table("events").insert(rows).execute().data
+
+
+def list_events(condition_id: str) -> list[dict]:
+    """Chronological order, undated events last — an event with no occurred_at
+    is either scheduled or something the patient never dated, and neither
+    belongs at the head of the timeline."""
+    sb = get_supabase()
+    return (
+        sb.table("events")
+        .select("*")
+        .eq("condition_id", condition_id)
+        .order("occurred_at", desc=False, nullsfirst=False)
+        .execute()
+        .data
+    )
+
+
+def list_upcoming_events(condition_id: str, *, before) -> list[dict]:
+    """Scheduled events still outstanding — due, and not yet happened."""
+    sb = get_supabase()
+    return (
+        sb.table("events")
+        .select("*")
+        .eq("condition_id", condition_id)
+        .not_.is_("due_at", "null")
+        .is_("occurred_at", "null")
+        .lte("due_at", before)
+        .order("due_at", desc=False)
+        .execute()
+        .data
+    )
+
+
+def get_events_for_visit(visit_id: str) -> list[dict]:
+    sb = get_supabase()
+    return sb.table("events").select("*").eq("visit_id", visit_id).execute().data
+
+
+def get_events_for_check_in(check_in_id: str) -> list[dict]:
+    sb = get_supabase()
+    return sb.table("events").select("*").eq("check_in_id", check_in_id).execute().data
+
+
+def mark_event_fulfilled(event_id: str, fulfilled_by_event_id: str) -> dict:
+    sb = get_supabase()
+    return (
+        sb.table("events")
+        .update({"fulfilled_by": fulfilled_by_event_id})
+        .eq("id", event_id)
+        .execute()
+        .data[0]
+    )
+
+
+def delete_events_for_check_in(check_in_id: str) -> None:
+    """Re-processing a check-in re-extracts its events, so clear the old ones
+    first rather than accumulating a duplicate of every dated thing said."""
+    sb = get_supabase()
+    sb.table("events").delete().eq("check_in_id", check_in_id).execute()
+
+
 def list_briefs(condition_id: str) -> list[dict]:
     sb = get_supabase()
     return (

@@ -34,6 +34,8 @@ import openai
 from dotenv import load_dotenv
 
 from .interval import IntervalFacts, observations
+from .trackers import Series
+from .trackers import observations as tracker_observations
 
 load_dotenv()
 
@@ -66,6 +68,11 @@ the opportunity to". The gap is the signal the doctor needs, and softening it \
 destroys the only useful thing about it.
 - Use approx_timing only where a check-in's week supports it: "around week \
 four". Otherwise leave it empty.
+- Self-rated scores belong in "what changed", reproduced with their numbers and \
+weeks exactly as supplied. Keep the series — "6 at week 1, 3 at week 7" is the \
+useful form; "improved" is not, and deciding a rating is an improvement is not \
+yours to do. A rating is what the patient reported feeling, never a measurement \
+of the condition and never evidence about the treatment.
 - Never diagnose, never attribute a cause to a symptom, never comment on a \
 dose or on whether treatment is working, never interpret a result, never \
 recommend a test or a referral. You report the interval; the doctor decides.
@@ -132,7 +139,11 @@ def _codex_client() -> openai.OpenAI:
     return openai.OpenAI(api_key=os.environ["CODEX_API_KEY"], base_url=CODEX_BASE_URL)
 
 
-def _payload(facts: IntervalFacts, check_ins: list[dict]) -> str:
+def _payload(
+    facts: IntervalFacts,
+    check_ins: list[dict],
+    series: list[Series] | None = None,
+) -> str:
     """Everything the brief is made of, as one document.
 
     The observations go in as a distinct block labelled "reproduce verbatim",
@@ -171,7 +182,12 @@ def _payload(facts: IntervalFacts, check_ins: list[dict]) -> str:
 
     lines = [json.dumps(body, indent=2)]
 
-    facts_to_reproduce = observations(facts)
+    # A rated series is exactly the material a model will editorialise if it is
+    # handed the numbers and left to describe them, so it arrives already
+    # written as sentences, in the same verbatim block as everything else that
+    # measures this interval. The model carries the line across; it does not
+    # decide what four points of movement mean.
+    facts_to_reproduce = observations(facts) + tracker_observations(series or [])
     if facts_to_reproduce:
         lines.append(
             "\n=== OBSERVATIONS — reproduce these verbatim, do not reword or "
@@ -196,12 +212,20 @@ def _check_shape(data: object) -> dict:
     return data
 
 
-def build_brief(*, facts: IntervalFacts, check_ins: list[dict]) -> Brief:
+def build_brief(
+    *,
+    facts: IntervalFacts,
+    check_ins: list[dict],
+    series: list[Series] | None = None,
+) -> Brief:
     """Compose the next-visit brief from the interval's record.
 
     Args:
         facts: The interval, from compute_interval_facts.
         check_ins: Every check-in record of the interval, oldest first.
+        series: The scored symptoms and their points, from trackers.collect.
+            Their movement is the one part of the interval that carries a
+            direction, so it arrives pre-written rather than as numbers.
 
     Returns:
         A Brief whose `data` conforms to brief.schema.json.
@@ -210,7 +234,7 @@ def build_brief(*, facts: IntervalFacts, check_ins: list[dict]) -> Brief:
         BriefError: The key is missing, or the response was unusable.
     """
     schema = {k: v for k, v in load_schema().items() if not k.startswith("$")}
-    user_content = _payload(facts, list(check_ins))
+    user_content = _payload(facts, list(check_ins), series)
 
     if PROVIDER == "codex":
         try:

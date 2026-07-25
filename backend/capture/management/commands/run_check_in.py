@@ -15,7 +15,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from capture import checkin, medication, simulate
+from capture import checkin, medication, simulate, trackers
 from capture.checkin import CheckInError, run_check_in
 from capture.interval import (
     IntervalError,
@@ -42,6 +42,11 @@ class Command(BaseCommand):
             help="stdin | llm | scripted:<path>. Default: stdin.",
         )
         parser.add_argument("--condition", default="hypothyroidism")
+        parser.add_argument(
+            "--plan",
+            default="",
+            help="The interval plan, for the scored symptoms it froze.",
+        )
         parser.add_argument(
             "--visit-date",
             default="",
@@ -123,6 +128,18 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
 
         medications = medication.from_summary(summary)
+
+        # Prior scores come from the same check-ins the facts were built from,
+        # so the agent sees the series it is adding a point to.
+        series = []
+        if options["plan"]:
+            plan_path = Path(options["plan"])
+            if not plan_path.is_file():
+                raise CommandError(f"No such plan: {plan_path}")
+            series = trackers.collect(
+                trackers.from_plan(json.loads(plan_path.read_text())), prior
+            )
+
         patient = self._patient(options)
 
         if day is not None and day <= checkin.FIRST_CONTACT_MAX_DAY:
@@ -161,6 +178,7 @@ class Command(BaseCommand):
                 max_turns=options["max_turns"],
                 medications=medications,
                 day=day,
+                series=series,
             )
         except CheckInError as exc:
             raise CommandError(str(exc)) from exc
@@ -189,6 +207,7 @@ class Command(BaseCommand):
                         "usage": check_in.usage,
                     },
                     "symptom_mentions": check_in.symptom_mentions,
+                    "symptom_scores": check_in.symptom_scores,
                     "transcript": check_in.transcript,
                     **check_in.data,
                 },
@@ -224,6 +243,15 @@ class Command(BaseCommand):
             if why:
                 self.stdout.write(self.style.HTTP_INFO(f"         ({why})"))
         self.stdout.write("")
+
+        if check_in.symptom_scores:
+            self.stdout.write(self.style.MIGRATE_HEADING("Ratings given"))
+            for s in check_in.symptom_scores:
+                value = s.get("value")
+                shown = f"{value}/10" if value is not None else "no number given"
+                self.stdout.write(
+                    f"  · {s['tracker_id']}: {shown} — \"{s.get('patient_words', '')}\""
+                )
 
         if check_in.symptom_mentions:
             self.stdout.write(self.style.MIGRATE_HEADING("Symptoms recorded"))

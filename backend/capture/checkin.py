@@ -46,6 +46,8 @@ from . import safety
 from .interval import IntervalFacts, as_agent_brief, watch_for_vocabulary
 from .medication import Medication
 from .medication import as_agent_brief as medication_as_agent_brief
+from .trackers import Series
+from .trackers import as_agent_brief as trackers_as_agent_brief
 from .plan import CheckInPlan
 from .plan import as_agent_brief as plan_as_agent_brief
 from .redflags import FiredFlag, evaluate_flags
@@ -131,6 +133,18 @@ a yes or no before treating it as settled. A value the patient has not agreed \
 to is not yet a value.
 - You may repeat the clinician's own timing instruction. You may not add a \
 timing rule they did not give.
+
+The scored questions, when the plan has any:
+- Ask each one exactly as written, once per call. This is the only thing you \
+do not phrase yourself, and rewording it is not a small liberty: the number is \
+compared with the ones from earlier calls, and a different question produces a \
+number that means something different. Ask it verbatim even where you would \
+have said it better.
+- Do not tell them what they said last time. Someone reminded of their previous \
+score gives it again.
+- If they will not give a number, take what they say and move on. Record the \
+tracker with a null value and their words. Never estimate the number yourself, \
+and never ask twice.
 
 Recording what you hear:
 - Map symptoms onto the context's own vocabulary where they plainly match. \
@@ -233,6 +247,10 @@ class TurnDecision:
         return self.data.get("symptom_mentions", [])
 
     @property
+    def symptom_scores(self) -> list[dict]:
+        return self.data.get("symptom_scores", [])
+
+    @property
     def should_end(self) -> bool:
         return bool(self.data.get("should_end", False))
 
@@ -254,6 +272,10 @@ class CheckIn:
     # feed assembles across several. Persisting them is what lets a symptom
     # reported at week 2 still count toward a flag that completes at week 6.
     symptom_mentions: list[dict] = field(default_factory=list)
+    # Kept beside `data` for the same reason mentions are, and load-bearing for
+    # the same reason: a score is only worth anything next to the ones from
+    # earlier calls, so it has to survive this one.
+    symptom_scores: list[dict] = field(default_factory=list)
     fired_flags: list[FiredFlag] = field(default_factory=list)
     week: int = 0
     # Days since the consultation, when the call needed finer placement than a
@@ -325,6 +347,7 @@ def _build_system_prompt(
     plan: CheckInPlan | None = None,
     medications: list[Medication] | None = None,
     day: int | None = None,
+    series: list[Series] | None = None,
 ) -> str:
     """The standing instructions, the interval, the agenda, and the context.
 
@@ -375,11 +398,21 @@ def _build_system_prompt(
         if rendered:
             meds = f"=== THE MEDICATION THREAD ===\n{rendered}\n\n"
 
+    # Placed after the agenda and immediately before the context, so the last
+    # thing read before the clinical detail is the instruction that these
+    # particular questions are not the agent's to rewrite.
+    scored = ""
+    if series:
+        rendered = trackers_as_agent_brief(series, facts.week)
+        if rendered:
+            scored = f"=== THE SCORED QUESTIONS ===\n{rendered}\n\n"
+
     return (
         f"{standing}\n\n"
         f"=== THIS INTERVAL ===\n{as_agent_brief(facts)}\n\n"
         f"{meds}"
         f"{agenda}"
+        f"{scored}"
         f"=== CLINICAL CONTEXT FOR {facts.condition_name.upper()} ===\n"
         f"{json.dumps(context, indent=2)}\n\n"
         f"=== THE BOUNDARY ===\n{framing}\n\n"
@@ -419,6 +452,7 @@ def run_turn(
     plan: CheckInPlan | None = None,
     medications: list[Medication] | None = None,
     day: int | None = None,
+    series: list[Series] | None = None,
 ) -> TurnDecision:
     """Ask the agent for its next move.
 
@@ -435,11 +469,14 @@ def run_turn(
         day: Days since the consultation. Only needed for calls that fall
             inside the first week — chiefly the day-after first contact, which
             week arithmetic alone cannot distinguish from any other week-0 call.
+        series: The scored symptoms and whatever they have scored so far. The
+            questions are asked verbatim; the prior points are for the agent's
+            orientation and are never read back to the patient.
 
     Returns:
         A TurnDecision whose `say` has already passed the safety filter.
     """
-    system = _build_system_prompt(facts, context, plan, medications, day)
+    system = _build_system_prompt(facts, context, plan, medications, day, series)
     schema = turn_schema(context)
 
     opening = (
@@ -521,6 +558,7 @@ def run_check_in(
     plan: CheckInPlan | None = None,
     medications: list[Medication] | None = None,
     day: int | None = None,
+    series: list[Series] | None = None,
 ) -> CheckIn:
     """Run a whole call and return the record the brief will read.
 
@@ -540,6 +578,11 @@ def run_check_in(
     covered: list[str] = []
     outcomes: dict[str, dict] = {}
     mentions: list[dict] = []
+    # Keyed by tracker, so a question asked once produces one point. If the
+    # patient revises ("six — no, more like eight"), the later answer is the
+    # one they meant, and two points from one call would corrupt a series whose
+    # whole meaning is one point per call.
+    scores: dict[str, dict] = {}
     questions: list[str] = []
     unprompted: list[str] = []
     usage = {"input_tokens": 0, "output_tokens": 0}
@@ -557,6 +600,7 @@ def run_check_in(
     ]
 
     fired: list[FiredFlag] = []
+    tracked_ids = {s.tracker.id for s in series} if series else None
 
     for turn_index in range(max_turns):
         decision = run_turn(
@@ -566,6 +610,7 @@ def run_check_in(
             plan=plan,
             medications=medications,
             day=day,
+            series=series,
         )
         usage["input_tokens"] += decision.usage.get("input_tokens", 0)
         usage["output_tokens"] += decision.usage.get("output_tokens", 0)
@@ -580,6 +625,16 @@ def run_check_in(
                 outcomes[cid] = outcome
         for mention in decision.symptom_mentions:
             mentions.append({**mention, "week": facts.week})
+        for score in decision.symptom_scores:
+            tracker_id = score.get("tracker_id")
+            if not tracker_id:
+                continue
+            # A tracker the plan does not carry is discarded here rather than
+            # downstream, so the stored record only ever contains series the
+            # interval actually planned.
+            if tracked_ids is not None and tracker_id not in tracked_ids:
+                continue
+            scores[tracker_id] = {**score, "week": facts.week}
         questions.extend(decision.data.get("questions_for_doctor", []))
         unprompted.extend(decision.data.get("unprompted_reports", []))
 
@@ -618,6 +673,7 @@ def run_check_in(
         transcript=transcript,
         reasoning=reasoning,
         symptom_mentions=mentions,
+        symptom_scores=list(scores.values()),
         fired_flags=fired,
         week=facts.week,
         day=day,

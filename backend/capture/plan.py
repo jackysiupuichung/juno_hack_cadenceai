@@ -113,6 +113,30 @@ fixable.
 - If it has not been collected, plan to check back rather than to press. \
 Repeat sensibly and stop; chasing past a fortnight is pressure, not care.
 
+The scored symptoms:
+- Choose two to four symptoms to rate 1-10 on every call, and write the exact \
+words that will be used to ask. They are asked verbatim, every call, for the \
+whole interval — you are fixing the wording once, and it does not get revised, \
+because a score is only comparable with the earlier ones if the question was \
+identical. Write them as you would say them aloud.
+- Choose from what the patient actually described at the appointment first. A \
+symptom they raised themselves is one they will answer thoughtfully about for \
+months; a symptom drawn only from the guideline is worth tracking but is a \
+colder question. Then add from the context what the trajectory says should \
+change over this interval.
+- Phrase every one so that 10 is the bad end. Ask about tiredness, not about \
+energy. The scale direction is fixed everywhere in this system, and a reversed \
+item is read backwards by whoever sees the series.
+- Do not write the scale into your wording. The anchors are appended \
+identically to every tracker.
+- Keep the set small. Each one spends a turn on every call, and a patient asked \
+six numbers stops thinking about any of them. Two well-chosen beat four \
+thorough ones.
+- Track severity, not events. "How tired have you felt this week" is a score; \
+"have you had the blood test" is an agenda item and belongs in items.
+- An empty list is right when the consultation raised nothing whose severity is \
+worth following.
+
 The call schedule:
 - Few calls, well placed. This person tires easily. The day-after contact plus \
 three or four across a seven-week interval is generous; more is a burden, not \
@@ -158,6 +182,11 @@ class CheckInPlan:
     @property
     def call_schedule(self) -> list[dict]:
         return self.data.get("call_schedule", [])
+
+    @property
+    def tracked_symptoms(self) -> list[dict]:
+        """The scored symptoms, frozen for the interval. See trackers.py."""
+        return self.data.get("tracked_symptoms", [])
 
     @property
     def reasoning(self) -> str:

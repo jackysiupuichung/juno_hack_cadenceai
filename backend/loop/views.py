@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import date as date_cls
+from datetime import timedelta
 
 import requests
 from django.conf import settings
@@ -13,6 +14,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from capture import events as ev
 from capture import safety
 from capture.interval import (
     IntervalError,
@@ -31,6 +33,7 @@ from . import repo
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
+    EVENTS_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     SUMMARISE_SYSTEM_PROMPT,
     LLMJSONError,
@@ -125,6 +128,70 @@ def _interval_facts(condition_id: str):
         prior_visit_dates=[date_cls.fromisoformat(v["date"][:10]) for v in visits[1:]],
     )
     return facts, context, prior
+
+
+def _extract_events(transcript: str, *, on: date_cls, source: str, **links) -> list[dict]:
+    """Dated events from a transcript, ready to insert.
+
+    Returns [] on any failure. Event extraction is an enrichment: a visit whose
+    chronology could not be parsed is still a visit, and losing the summary
+    because the dating call failed would trade the record for a detail. The
+    conversation date goes in explicitly because every relative timing the
+    patient gives — "a fortnight ago" — is resolved against it.
+    """
+    if not transcript.strip():
+        return []
+
+    user_content = (
+        f"Conversation date: {on.isoformat()}\n\n"
+        f"Transcript:\n{transcript}"
+    )
+    try:
+        extracted = call_llm_json(EVENTS_SYSTEM_PROMPT, user_content, schema_name="event")
+    except LLMJSONError:
+        return []
+
+    rows = []
+    for item in extracted.get("events", []):
+        event = ev.from_extraction(item, conversation_date=on, source=source)
+        if event is not None:
+            rows.append(ev.to_row(event, **links))
+    return rows
+
+
+def _resolve_scheduled(condition_id: str, created: list[dict]) -> None:
+    """Close out a due date when the thing it was waiting for actually happens.
+
+    Matching is by kind alone, taking the oldest outstanding due date of that
+    kind. That is deliberately loose: the alternative is asking a model whether
+    "the blood test I had last Tuesday" is the same test the guideline
+    scheduled for week 7, and a wrong answer there either hides a genuinely
+    overdue test or reports one that was done. Loose matching fails toward
+    marking things done, so the counterpart is that `overdue` is only ever
+    computed from what remains — an unmatched event never invents a new gap.
+    """
+    done_kinds = {
+        row["kind"] for row in created if row.get("occurred_at") and row.get("kind")
+    }
+    if not done_kinds:
+        return
+
+    outstanding = [
+        row
+        for row in repo.list_events(condition_id)
+        if row.get("due_at") and not row.get("occurred_at") and not row.get("fulfilled_by")
+    ]
+    outstanding.sort(key=lambda r: r["due_at"])
+
+    for row in created:
+        if not row.get("occurred_at"):
+            continue
+        match = next(
+            (o for o in outstanding if o["kind"] == row["kind"]), None
+        )
+        if match and row.get("id"):
+            repo.mark_event_fulfilled(match["id"], row["id"])
+            outstanding.remove(match)
 
 
 def _load_plan(condition_id: str) -> CheckInPlan | None:
@@ -395,15 +462,80 @@ def summarise(request):
     except (PlanError, IntervalError) as exc:
         plan_error = str(exc)
 
+    # The chronology this visit opens: the visit itself, anything the
+    # transcript dated, and the monitoring events the guideline says are now
+    # due. The last of those is what a calendar can actually render — a blood
+    # test due on a date, rather than "week 7" recomputed on every read.
+    visit_date = date_cls.fromisoformat(visit["date"][:10])
+    rows = [
+        ev.to_row(
+            ev.Event(
+                kind="visit",
+                label=f"Consultation ({visit.get('care_setting', 'gp')})",
+                occurred_at=visit_date,
+                precision="day",
+                source="consultation",
+                recorded_at=visit_date,
+            ),
+            condition_id=condition["id"],
+            visit_id=visit["id"],
+        )
+    ]
+    rows += _extract_events(
+        transcript,
+        on=visit_date,
+        source="consultation",
+        condition_id=condition["id"],
+        visit_id=visit["id"],
+    )
+    rows += _scheduled_rows(condition["id"], visit["id"], visit_date)
+
+    created_events = repo.create_events(rows) if rows else []
+
     return Response(
         {
             **visit,
             "commitments": commitments,
             "plan": (plan_row or {}).get("content"),
             "plan_error": plan_error,
+            "events": created_events,
         },
         status=status.HTTP_201_CREATED,
     )
+
+
+def _scheduled_rows(condition_id: str, visit_id: str, visit_date: date_cls) -> list[dict]:
+    """Due dates the guideline implies, as rows a calendar can render.
+
+    Only events whose clock this visit actually starts. `dose_change` and
+    `last_result` hang off things that have not happened yet; when they do, the
+    check-in that reports them schedules the follow-up rather than this.
+    """
+    try:
+        context = load_context(CONDITION_CONTEXT)
+    except IntervalError:
+        return []
+
+    rows = []
+    for event in context.get("monitoring", []):
+        if event.get("trigger") != "treatment_start":
+            continue
+        weeks = int(event.get("interval_weeks", 0))
+        rows.append(
+            ev.to_row(
+                ev.Event(
+                    kind="test_taken",
+                    label=event.get("event", ""),
+                    due_at=visit_date + timedelta(weeks=weeks),
+                    precision="week",
+                    source="scheduled",
+                    context_ids=(event.get("id", ""),),
+                ),
+                condition_id=condition_id,
+                visit_id=visit_id,
+            )
+        )
+    return rows
 
 
 @api_view(["GET"])
@@ -655,6 +787,36 @@ def checkin(request):
     outcome_rows = [row for row in outcome_rows if row.get("commitment_id") in valid_ids]
     outcomes = repo.create_outcomes(check_in["id"], outcome_rows)
 
+    # When things happened, as opposed to when we heard about them. A patient
+    # who says "I stopped after about a fortnight" has dated an event three
+    # weeks before this call, and recording it against the call date would put
+    # it in the wrong place in the chronology.
+    check_in_date = date_cls.fromisoformat(check_in["date"][:10])
+    event_rows = [
+        ev.to_row(
+            ev.Event(
+                kind="check_in",
+                label="Check-in call",
+                occurred_at=check_in_date,
+                precision="day",
+                source="derived",
+                recorded_at=check_in_date,
+            ),
+            condition_id=condition["id"],
+            check_in_id=check_in["id"],
+        )
+    ]
+    if transcript:
+        event_rows += _extract_events(
+            transcript,
+            on=check_in_date,
+            source="patient_reported",
+            condition_id=condition["id"],
+            check_in_id=check_in["id"],
+        )
+    created_events = repo.create_events(event_rows) if event_rows else []
+    _resolve_scheduled(condition["id"], created_events)
+
     for row in outcome_rows:
         if row.get("status") in RESOLVED_STATUSES:
             repo.update_commitment_status(row["commitment_id"], row["status"])
@@ -699,6 +861,58 @@ def checkin(request):
     return Response(
         {**check_in, "outcomes": outcomes, "red_flags": fired},
         status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["GET"])
+def events(request):
+    """The chronology: what happened when, and what is due.
+
+    The calendar's endpoint. Everything is returned in one call rather than
+    paged, because an interval is weeks long and a chronology split across
+    requests cannot be read in order.
+    """
+    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    if error:
+        return error
+
+    today = date_cls.today()
+    rows = repo.list_events(condition["id"])
+    parsed = [ev.from_row(row) for row in rows]
+
+    # Anything already fulfilled is history, not an outstanding due date.
+    fulfilled = {r["fulfilled_by"] for r in rows if r.get("fulfilled_by")}
+    outstanding = [
+        e
+        for e, r in zip(parsed, rows)
+        if not (r.get("due_at") and not r.get("occurred_at") and r.get("fulfilled_by"))
+    ]
+
+    def out(event: ev.Event) -> dict:
+        return {
+            "id": event.event_id,
+            "kind": event.kind,
+            "label": event.label,
+            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+            "due_at": event.due_at.isoformat() if event.due_at else None,
+            "precision": event.precision,
+            "source": event.source,
+            "patient_words": event.patient_words,
+            "when": event.when(),
+            "reporting_delay_days": event.reporting_delay_days,
+            "context_ids": list(event.context_ids),
+        }
+
+    return Response(
+        {
+            "today": today.isoformat(),
+            "timeline": [out(e) for e in ev.timeline(outstanding) if e.is_dated],
+            "upcoming": [out(e) for e in ev.upcoming(outstanding, today=today)],
+            "overdue": [out(e) for e in ev.overdue(outstanding, today=today)],
+            "undated": [out(e) for e in outstanding if not e.is_dated and not e.is_scheduled],
+            "anchors": {k: v.isoformat() for k, v in ev.anchors(parsed).items()},
+            "fulfilled_count": len(fulfilled),
+        }
     )
 
 
@@ -807,11 +1021,30 @@ def brief(request):
     # test was due around week 7 and is 3 weeks past" is a fact about the
     # record; "the dose may be too high" is a diagnosis. Pre-writing the
     # factual form denies the model the chance to produce the second kind.
+    # The chronology, so the brief can say when things happened rather than
+    # only that they did. Sequence is often the finding — a symptom that began
+    # two weeks before it was reported reads differently from one reported the
+    # day it started, and neither is visible from outcomes alone.
+    today = date_cls.today()
+    event_rows = repo.list_events(condition["id"])
+    parsed = [ev.from_row(r) for r in event_rows]
+    outstanding = [
+        e
+        for e, r in zip(parsed, event_rows)
+        if not (r.get("due_at") and not r.get("occurred_at") and r.get("fulfilled_by"))
+    ]
+    if outstanding:
+        payload["chronology"] = [
+            {"when": e.when(), "what": e.label, "kind": e.kind}
+            for e in ev.timeline(outstanding)
+            if e.is_dated
+        ]
+
     user_content = json.dumps(payload, indent=2)
     try:
         facts, _, _ = _interval_facts(condition["id"])
         if facts is not None:
-            lines = observations(facts)
+            lines = observations(facts) + ev.observations(outstanding, today=today)
             if lines:
                 user_content += (
                     # One observation per line, with no bullet character. The

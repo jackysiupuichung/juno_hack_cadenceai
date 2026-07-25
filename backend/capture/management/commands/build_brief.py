@@ -14,6 +14,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
+from capture import trackers
 from capture.brief import BriefError, build_brief, render
 from capture.interval import IntervalError, compute_interval_facts, load_context
 
@@ -30,6 +31,11 @@ class Command(BaseCommand):
             help="Check-in JSON files, oldest first. Omit for an empty interval.",
         )
         parser.add_argument("--condition", default="hypothyroidism")
+        parser.add_argument(
+            "--plan",
+            default="",
+            help="The interval plan, for the scored symptoms it froze.",
+        )
         parser.add_argument("--visit-date", default="")
         parser.add_argument("--today", default="")
         parser.add_argument(
@@ -89,8 +95,24 @@ class Command(BaseCommand):
             )
         )
 
+        # The trackers come from the plan rather than from the check-ins: a
+        # series the interval never planned is not one the brief should show,
+        # and the plan is what froze the wording the scores were given against.
+        series = []
+        if options["plan"]:
+            plan_path = Path(options["plan"])
+            if not plan_path.is_file():
+                raise CommandError(f"No such plan: {plan_path}")
+            plan_body = json.loads(plan_path.read_text())
+            series = trackers.collect(trackers.from_plan(plan_body), check_ins)
+            for tracked in series:
+                self.stdout.write(
+                    f"  {tracked.tracker.label}: "
+                    f"{tracked.sparkline() or '(no ratings)'}"
+                )
+
         try:
-            brief = build_brief(facts=facts, check_ins=check_ins)
+            brief = build_brief(facts=facts, check_ins=check_ins, series=series)
         except BriefError as exc:
             raise CommandError(str(exc)) from exc
 
@@ -109,6 +131,7 @@ class Command(BaseCommand):
                         "visit_date": facts.visit_date.isoformat(),
                         "generated_for": facts.today.isoformat(),
                         "check_ins": [c.get("week") for c in check_ins],
+                        "tracked_symptoms": trackers.as_chart_data(series),
                         "usage": brief.usage,
                     },
                     **brief.data,
