@@ -2180,6 +2180,44 @@ class SyntheticIntervalTests(SimpleTestCase):
         self.assertGreater(len(weeks), 1)
 
 
+class VisitsHeldTests(SimpleTestCase):
+    """An upcoming appointment must not be mistaken for the last consultation.
+
+    Regression. list_visits sorts by date descending, so the moment a scheduled
+    Visit 2 exists it comes back first — and every caller reaching for "the
+    latest visit" got a row with no summary and no commitments. The brief came
+    back with empty agreed[] and did[] and gaps claiming no commitments were
+    recorded; the interval facts filtered out every check-in as predating it.
+    Both looked like plausible output, which is what made it dangerous.
+    """
+
+    def _held(self, visits):
+        from loop.views import _visits_held
+
+        return _visits_held(visits)
+
+    def test_an_appointment_ahead_is_not_the_latest_visit(self):
+        upcoming = {"id": "next", "date": "2026-07-29", "summary": None}
+        consultation = {"id": "held", "date": "2026-05-02", "summary": {"commitments": []}}
+        self.assertEqual(
+            [v["id"] for v in self._held([upcoming, consultation])], ["held"]
+        )
+
+    def test_a_consultation_recorded_today_still_counts_as_held(self):
+        # Why the test is on the summary rather than the date: a visit recorded
+        # this morning is in the past by seconds, and a date comparison would
+        # have to decide what "today" means. Having been summarised is the
+        # thing that actually distinguishes them.
+        today = {"id": "today", "date": "2026-07-25", "summary": {"commitments": []}}
+        self.assertEqual([v["id"] for v in self._held([today])], ["today"])
+
+    def test_no_held_visit_is_distinguishable_from_no_visit_at_all(self):
+        # A condition whose only row is an appointment ahead returns empty, so
+        # callers report "nothing recorded yet" rather than building a brief
+        # out of a visit that has not happened.
+        self.assertEqual(self._held([{"id": "n", "date": "2026-07-29", "summary": None}]), [])
+
+
 class SyntheticMedicationThreadTests(SimpleTestCase):
     """Replaying the interval's medication updates, call by call."""
 

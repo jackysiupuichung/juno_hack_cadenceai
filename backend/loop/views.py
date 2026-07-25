@@ -55,6 +55,22 @@ RESOLVED_STATUSES = {"done", "not_done", "partial", "changed"}
 CONDITION_CONTEXT = "hypothyroidism"
 
 
+def _visits_held(visits: list[dict]) -> list[dict]:
+    """Only the visits that have actually happened, newest first.
+
+    An upcoming appointment is a real row — it is what the brief is carried
+    into — and list_visits sorts by date descending, so once one exists it
+    comes back first. Anything that reaches for "the latest visit" meaning "the
+    consultation that opened the current interval" must skip it, or it reads a
+    visit with no summary, no commitments, and a date in the future.
+
+    A visit that happened is one with a summary. A date comparison alone would
+    misjudge a consultation recorded earlier today, and an appointment is
+    exactly the visit not yet summarised.
+    """
+    return [v for v in visits if v.get("summary")]
+
+
 def _interval_facts(condition_id: str):
     """The interval as of today, assembled from what Supabase holds.
 
@@ -67,7 +83,7 @@ def _interval_facts(condition_id: str):
     exists to end — so the brief that closed the previous interval, and the
     dates of the visits before this one, are carried in alongside.
     """
-    visits = repo.list_visits(condition_id)
+    visits = _visits_held(repo.list_visits(condition_id))
     if not visits:
         return None, None, []
 
@@ -1089,7 +1105,9 @@ def plan(request):
         return error
 
     if request.method == "POST":
-        visits = repo.list_visits(condition["id"])
+        # The plan is the agenda for the interval a consultation opened, so it
+        # is built from the consultation, not from an appointment ahead.
+        visits = _visits_held(repo.list_visits(condition["id"]))
         if not visits:
             return Response(
                 {"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST
@@ -1152,7 +1170,17 @@ def brief(request):
     if not visits:
         return Response({"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST)
 
-    latest_visit = visits[0]
+    # The brief is an account of the interval the last consultation OPENED, so
+    # it is built from the last visit that happened — not the next one
+    # scheduled, which is what the brief is carried into.
+    held = _visits_held(visits)
+    if not held:
+        return Response(
+            {"error": "no consultation has been recorded and summarised yet"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    latest_visit = held[0]
     commitments = repo.get_commitments_for_visit(latest_visit["id"])
     outcomes = repo.get_outcomes_for_commitments([c["id"] for c in commitments])
 
@@ -1194,6 +1222,19 @@ def brief(request):
             for e in ev.timeline(outstanding)
             if e.is_dated
         ]
+
+    # What the patient asked and no call could answer. The check-ins collect
+    # these and brief.schema.json has open_questions for them, but nothing was
+    # carrying them across — so the section was structurally always empty. It
+    # is the one part of the brief written by the patient rather than about
+    # them, and the reason they are holding it in the waiting room.
+    asked = []
+    for row in sorted(repo.list_check_ins(condition["id"]), key=lambda c: c["date"]):
+        for question in (row.get("raw") or {}).get("questions_for_doctor", []):
+            if question not in asked:
+                asked.append(question)
+    if asked:
+        payload["questions_from_patient"] = asked
 
     user_content = json.dumps(payload, indent=2)
     try:
