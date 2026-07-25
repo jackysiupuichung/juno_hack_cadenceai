@@ -228,9 +228,25 @@ def _commitment_facts(summary: dict, prior_check_ins: list[dict]) -> list[Commit
     for i, commitment in enumerate(summary.get("commitments", [])):
         cid = commitment_id(i)
         status, last_week = latest.get(cid, ("unknown", None))
+
+        # Two id schemes meet here. Offline, commitments are keyed positionally
+        # (c1, c2…) and their status is derived from check-in JSON above.
+        # Persisted, they carry Supabase UUIDs and the database has already
+        # resolved the status — so the outcome ids never match the positional
+        # ones and everything falls through to "unknown". A stored status is
+        # therefore authoritative when present: it is the answer the patient
+        # actually gave, and treating it as absent made the brief report
+        # "never discussed in a check-in" about commitments it had, on the same
+        # page, just quoted the patient answering.
+        stored = commitment.get("status")
+        if stored and stored != "pending":
+            status = stored
+            if last_week is None and prior_check_ins:
+                last_week = prior_check_ins[-1].get("week")
+
         facts.append(
             CommitmentFact(
-                commitment_id=cid,
+                commitment_id=commitment.get("id") or cid,
                 text=commitment.get("text", ""),
                 type=commitment.get("type", ""),
                 timeframe=commitment.get("timeframe", ""),

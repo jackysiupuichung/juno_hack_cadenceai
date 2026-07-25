@@ -96,8 +96,27 @@ def _interval_facts(condition_id: str):
         brief_row = repo.get_brief(latest["previous_brief_id"])
         previous_brief = (brief_row or {}).get("content")
 
+    # The stored summary jsonb is the visit as Claude extracted it; it carries
+    # no status, because status is what the interval since has established.
+    # Overlay the commitment rows, which do — otherwise every commitment reads
+    # as "unknown" no matter what the patient has since answered.
+    summary = dict(latest.get("summary") or {})
+    rows = repo.get_commitments_for_visit(latest["id"])
+    if rows:
+        summary["commitments"] = [
+            {
+                "id": row["id"],
+                "text": row.get("text", ""),
+                "type": row.get("type", ""),
+                "timeframe": row.get("timeframe", ""),
+                "source_quote": row.get("source_quote", ""),
+                "status": row.get("status", "pending"),
+            }
+            for row in rows
+        ]
+
     facts = compute_interval_facts(
-        summary=latest.get("summary") or {},
+        summary=summary,
         context=context,
         visit_date=visit_date,
         today=date_cls.today(),
@@ -790,9 +809,14 @@ def brief(request):
             lines = observations(facts)
             if lines:
                 user_content += (
-                    "\n\n=== OBSERVATIONS — reproduce these verbatim, do not "
-                    "reword or extend them ===\n"
-                    + "\n".join(f"- {line}" for line in lines)
+                    # One observation per line, with no bullet character. The
+                    # instruction is to reproduce them verbatim, and a model
+                    # told that will faithfully reproduce a leading "- " too —
+                    # which then shows up as a stray bullet inside a JSON
+                    # string. The delimiter must not look like content.
+                    "\n\n=== OBSERVATIONS — reproduce each of these verbatim as "
+                    "its own entry, do not reword, extend, or prefix them ===\n"
+                    + "\n".join(lines)
                 )
 
             # A planned question no call ever reached belongs in the brief's
