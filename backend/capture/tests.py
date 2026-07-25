@@ -6,6 +6,7 @@ from pathlib import Path
 from django.test import TestCase
 
 from .roles import DOCTOR, PATIENT, UNKNOWN, infer_roles
+from .summarise import SummariseError, _check_shape, load_schema, summarise_transcript
 from .transcribe import Transcript, Utterance, _group_into_utterances
 
 FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "demo_consultation.json"
@@ -250,3 +251,82 @@ class DemoFixtureTests(TestCase):
         """A near-empty transcript would make the summary stage look broken."""
         self.assertGreaterEqual(len(self.data["utterances"]), 10)
         self.assertGreater(self.data["duration_seconds"], 60)
+
+
+def _valid_summary(**overrides) -> dict:
+    """A minimal summary that satisfies the schema's required fields."""
+    data = {
+        "patient_symptoms_summary": "Fatigue and dry skin.",
+        "doctor_diagnosis": "Low thyroid levels.",
+        "doctor_advice": "Start thyroid replacement medication.",
+        "red_flags": ["Racing heart"],
+        "medications": [
+            {
+                "name": "Levothyroxine",
+                "dosage": "unclear — please confirm with your doctor",
+                "frequency": "daily",
+                "duration": "3 months",
+                "instructions": "On an empty stomach",
+            }
+        ],
+        "things_to_avoid": [],
+        "lifestyle_advice": [],
+        "commitments": [
+            {
+                "text": "Take your thyroid tablet each morning.",
+                "type": "medication",
+                "timeframe": "3 months",
+                "source_quote": "take these medications on an empty stomach",
+            }
+        ],
+        "future_plan": {
+            "follow_up_needed": True,
+            "date_or_timeframe": "3 months",
+            "purpose": "Review how the medication helped",
+        },
+    }
+    data.update(overrides)
+    return data
+
+
+class SummaryShapeTests(TestCase):
+    """The summary is the contract the brief is later built from."""
+
+    def test_schema_loads_and_declares_required_fields(self):
+        schema = load_schema()
+        self.assertIn("commitments", schema["required"])
+        self.assertIs(schema["additionalProperties"], False)
+
+    def test_a_valid_summary_passes(self):
+        self.assertEqual(_check_shape(_valid_summary()), _valid_summary())
+
+    def test_rejects_a_non_object(self):
+        for bad in ([], "text", 7, None):
+            with self.assertRaises(SummariseError):
+                _check_shape(bad)
+
+    def test_rejects_a_summary_missing_required_fields(self):
+        incomplete = _valid_summary()
+        del incomplete["red_flags"]
+        with self.assertRaises(SummariseError) as ctx:
+            _check_shape(incomplete)
+        self.assertIn("red_flags", str(ctx.exception))
+
+    def test_rejects_a_commitment_missing_its_audit_trail(self):
+        """source_quote is what proves the loop is made of real data."""
+        data = _valid_summary(
+            commitments=[{"text": "Take it", "type": "medication", "timeframe": ""}]
+        )
+        with self.assertRaises(SummariseError) as ctx:
+            _check_shape(data)
+        self.assertIn("source_quote", str(ctx.exception))
+
+    def test_an_empty_commitment_list_is_valid(self):
+        """A consultation with no agreed actions is honest output, not an error."""
+        _check_shape(_valid_summary(commitments=[]))
+
+    def test_empty_transcript_is_rejected_before_any_api_call(self):
+        for empty in ("", "   ", "\n\n"):
+            with self.assertRaises(SummariseError) as ctx:
+                summarise_transcript(empty)
+            self.assertIn("empty", str(ctx.exception).lower())
