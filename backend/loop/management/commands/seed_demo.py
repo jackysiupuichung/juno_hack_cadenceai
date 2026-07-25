@@ -32,7 +32,10 @@ from ...services import (
 
 FIXTURE_PATH = Path(__file__).resolve().parents[4] / "fixtures" / "demo_consultation.json"
 
-RESOLVED_STATUSES = {"done", "not_done", "changed"}
+# Statuses a check-in can settle a commitment into. "partial" belongs here —
+# it is a real answer, and leaving it out left the commitment at "pending" as
+# though nobody had ever asked. Kept in step with views.RESOLVED_STATUSES.
+RESOLVED_STATUSES = {"done", "not_done", "partial", "changed"}
 
 # A plausible patient-only voice check-in, written to touch every commitment
 # without hardcoding what those commitments will say (they're extracted by

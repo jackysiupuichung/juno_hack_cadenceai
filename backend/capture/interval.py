@@ -123,6 +123,22 @@ class MonitoringFact:
 
 
 @dataclass(frozen=True)
+class TrajectoryFact:
+    """A milestone the guideline expects, and where the interval sits on it.
+
+    Held separately from MonitoringFact because the two answer different
+    questions. Monitoring is about appointments that were meant to be kept —
+    something a patient can be behind on. A trajectory marker is about how the
+    body has responded, which nobody is behind on. That distinction is the
+    reason `status` is a window position and never a verdict.
+    """
+
+    event: dict
+    status: str               # too_early | in_window | past_expected
+    weeks_past_expected: int  # 0 unless week > expected_by_week
+
+
+@dataclass(frozen=True)
 class SymptomMention:
     """A canonical symptom phrase the patient reported, and when."""
 
@@ -150,9 +166,17 @@ class IntervalFacts:
     week: int
     commitments: list[CommitmentFact] = field(default_factory=list)
     monitoring: list[MonitoringFact] = field(default_factory=list)
+    trajectory: list[TrajectoryFact] = field(default_factory=list)
     mentions: list[SymptomMention] = field(default_factory=list)
     unanswered_questions: list[str] = field(default_factory=list)
     previous_check_in_weeks: list[int] = field(default_factory=list)
+
+    # Cross-visit context. Optional, and absent for the first interval a patient
+    # ever records — which is the common case and must stay the cheap one. When
+    # present, it is what makes the second consultation start warm rather than
+    # cold: the interval knows it is not the first.
+    previous_brief: dict | None = None
+    prior_visit_dates: list[date] = field(default_factory=list)
 
     @property
     def open_commitments(self) -> list[CommitmentFact]:
@@ -204,9 +228,25 @@ def _commitment_facts(summary: dict, prior_check_ins: list[dict]) -> list[Commit
     for i, commitment in enumerate(summary.get("commitments", [])):
         cid = commitment_id(i)
         status, last_week = latest.get(cid, ("unknown", None))
+
+        # Two id schemes meet here. Offline, commitments are keyed positionally
+        # (c1, c2…) and their status is derived from check-in JSON above.
+        # Persisted, they carry Supabase UUIDs and the database has already
+        # resolved the status — so the outcome ids never match the positional
+        # ones and everything falls through to "unknown". A stored status is
+        # therefore authoritative when present: it is the answer the patient
+        # actually gave, and treating it as absent made the brief report
+        # "never discussed in a check-in" about commitments it had, on the same
+        # page, just quoted the patient answering.
+        stored = commitment.get("status")
+        if stored and stored != "pending":
+            status = stored
+            if last_week is None and prior_check_ins:
+                last_week = prior_check_ins[-1].get("week")
+
         facts.append(
             CommitmentFact(
-                commitment_id=cid,
+                commitment_id=commitment.get("id") or cid,
                 text=commitment.get("text", ""),
                 type=commitment.get("type", ""),
                 timeframe=commitment.get("timeframe", ""),
@@ -255,6 +295,31 @@ def _monitoring_facts(context: dict, visit_date: date, week: int) -> list[Monito
     return facts
 
 
+def _trajectory_facts(context: dict, week: int) -> list[TrajectoryFact]:
+    """Where the interval sits against each expected-course milestone.
+
+    Every marker is reported, including the ones that are still too early, for
+    the same reason _monitoring_facts reports unscheduled events: the agent
+    needs to know a marker exists and is not yet in play. Otherwise "nothing to
+    say about symptom resolution at week 4" is indistinguishable from "there is
+    no such milestone", and only the first is true.
+    """
+    facts = []
+    for event in context.get("trajectory", []):
+        earliest = int(event.get("earliest_week", 0))
+        expected_by = int(event.get("expected_by_week", earliest))
+
+        if week < earliest:
+            status, past = "too_early", 0
+        elif week <= expected_by:
+            status, past = "in_window", 0
+        else:
+            status, past = "past_expected", week - expected_by
+
+        facts.append(TrajectoryFact(event=event, status=status, weeks_past_expected=past))
+    return facts
+
+
 def _mentions(prior_check_ins: list[dict]) -> list[SymptomMention]:
     """Canonical symptom phrases already reported, across every prior call.
 
@@ -284,6 +349,8 @@ def compute_interval_facts(
     visit_date: date,
     today: date,
     prior_check_ins: list[dict] = (),
+    previous_brief: dict | None = None,
+    prior_visit_dates: list[date] = (),
 ) -> IntervalFacts:
     """Assemble everything true about this interval as of `today`.
 
@@ -294,6 +361,10 @@ def compute_interval_facts(
         today: The date to evaluate against.
         prior_check_ins: Earlier check-in records, oldest first. Each is a
             check_in.schema.json body plus `week` and `symptom_mentions`.
+        previous_brief: The brief produced at the end of the previous interval,
+            conforming to brief.schema.json. Optional, and defaulted so that
+            every caller written before the loop closed keeps working.
+        prior_visit_dates: Consultations before this one, oldest first.
 
     Returns:
         IntervalFacts. Every field is computed from the inputs; none is a
@@ -301,6 +372,7 @@ def compute_interval_facts(
     """
     prior = list(prior_check_ins)
     condition = context["condition"]
+    week = _weeks_between(visit_date, today)
 
     return IntervalFacts(
         condition_id=condition["id"],
@@ -308,9 +380,10 @@ def compute_interval_facts(
         plain_name=condition.get("plain_name", ""),
         visit_date=visit_date,
         today=today,
-        week=_weeks_between(visit_date, today),
+        week=week,
         commitments=_commitment_facts(summary, prior),
-        monitoring=_monitoring_facts(context, visit_date, _weeks_between(visit_date, today)),
+        monitoring=_monitoring_facts(context, visit_date, week),
+        trajectory=_trajectory_facts(context, week),
         mentions=_mentions(prior),
         unanswered_questions=[
             question
@@ -318,6 +391,8 @@ def compute_interval_facts(
             for question in check_in.get("questions_for_doctor", [])
         ],
         previous_check_in_weeks=[c.get("week", 0) for c in prior],
+        previous_brief=previous_brief,
+        prior_visit_dates=list(prior_visit_dates),
     )
 
 
@@ -362,9 +437,56 @@ def as_agent_brief(facts: IntervalFacts) -> str:
         else:
             lines.append(f"  {m.event['event']}: due week {m.due_week}")
 
+    if facts.trajectory:
+        lines.append("\nExpected course:")
+        for t in facts.trajectory:
+            marker = t.event.get("marker", t.event.get("id", ""))
+            window = f"weeks {t.event.get('earliest_week')}–{t.event.get('expected_by_week')}"
+            if t.status == "too_early":
+                where = f"not yet expected ({window})"
+            elif t.status == "in_window":
+                where = f"inside the usual window ({window})"
+            else:
+                where = (
+                    f"past the usual window ({window}), "
+                    f"{t.weeks_past_expected} week(s) beyond it"
+                )
+            lines.append(f"  {marker}: {where} — {t.event.get('expectation', '')}")
+
     if facts.unanswered_questions:
         lines.append("\nQuestions the patient has raised for their doctor:")
         lines.extend(f"  - {q}" for q in facts.unanswered_questions)
+
+    if facts.previous_brief:
+        # Deliberately three lines, not a JSON dump. The agent is already
+        # holding the whole disease context and this interval's facts; the job
+        # of this section is only to stop the call opening as though the
+        # patient had never been through any of this before.
+        lines.append("\nThis is not their first interval.")
+        if facts.prior_visit_dates:
+            dates = ", ".join(d.isoformat() for d in facts.prior_visit_dates)
+            lines.append(f"  Earlier consultations: {dates}.")
+
+        changed = facts.previous_brief.get("changed", [])
+        if changed:
+            deltas = "; ".join(
+                f"{c.get('text', '')} ({c.get('direction', '')})" for c in changed[:3]
+            )
+            lines.append(f"  By the end of the last interval: {deltas}.")
+
+        unresolved = [
+            d.get("text", "")
+            for d in facts.previous_brief.get("did", [])
+            if d.get("status") in {"not_done", "partial"}
+        ]
+        if unresolved:
+            lines.append(
+                f"  Left unfinished last time: {'; '.join(unresolved[:3])}."
+            )
+
+        carried = facts.previous_brief.get("open_questions", [])
+        if carried:
+            lines.append(f"  They were still asking: {'; '.join(carried[:2])}.")
 
     return "\n".join(lines)
 
@@ -392,6 +514,26 @@ def observations(facts: IntervalFacts) -> list[str]:
             )
         elif facts.week >= m.due_week:
             lines.append(f"{m.event['event']} is due around now (week {m.due_week}).")
+
+    # The context's own `if_not_met` wording is reproduced verbatim rather than
+    # paraphrased, and the sentence is completed with nothing but two dates.
+    # A missed window here is ordinary — the guideline's ranges are wide, and
+    # people fall outside them for reasons that have nothing to do with the
+    # treatment. Anything that reads as a conclusion ("not responding", "the
+    # dose may be wrong") is both a diagnosis we are not permitted to make and,
+    # far more often than not, simply false. safety.prohibited_outputs names
+    # this exact failure: framing an expected-window shortfall as something
+    # being wrong. So the line states the record and stops.
+    for t in facts.trajectory:
+        if t.status == "past_expected":
+            # The context authors wrote if_not_met as a standalone sentence, so
+            # its full stop is trimmed before the clause that dates it.
+            marker = t.event.get("if_not_met", "").rstrip(". ")
+            if marker:
+                lines.append(
+                    f"{marker} — the usual window for this is by week "
+                    f"{t.event.get('expected_by_week')}, and it is now week {facts.week}."
+                )
 
     for c in facts.commitments:
         if c.status == "not_done":

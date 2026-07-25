@@ -44,6 +44,12 @@ from dotenv import load_dotenv
 
 from . import safety
 from .interval import IntervalFacts, as_agent_brief, watch_for_vocabulary
+from .medication import Medication
+from .medication import as_agent_brief as medication_as_agent_brief
+from .trackers import Series
+from .trackers import as_agent_brief as trackers_as_agent_brief
+from .plan import CheckInPlan
+from .plan import as_agent_brief as plan_as_agent_brief
 from .redflags import FiredFlag, evaluate_flags
 
 load_dotenv()
@@ -65,7 +71,7 @@ SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "schemas" / "check_in_turn.schema.json"
 )
 
-SYSTEM_PROMPT = """You are Cadence, phoning a patient between appointments. You work for the \
+INTERVAL_FRAMING = """You are Cadence, phoning a patient between appointments. You work for the \
 patient, not for their clinic. You are not their doctor, and you are not a \
 triage service.
 
@@ -93,9 +99,14 @@ ask about it directly.
 pull it, even if nothing in the context anticipated it.
 - Do not re-ask what is already settled. Commitments marked done, and symptoms \
 already recorded this interval, do not need revisiting unless something has \
-changed.
+changed."""
 
-How to talk:
+# Everything below applies to every call regardless of when in the interval it
+# falls: how to speak, where the line is, and how to write the record down. Kept
+# apart from the framing above so the day-after call can replace what the call
+# is for without restating any of it — a second copy of the boundary rules is a
+# second copy to drift.
+SHARED_RULES = """How to talk:
 - One question per turn. Short, warm, answerable in one breath.
 - This person tires easily. Aim to be done in six or seven exchanges. Brevity \
 is care, not curtness.
@@ -112,6 +123,29 @@ attention, you may tell them so — but only in the context's own words, which \
 will be supplied to you. Do not compose your own warning and do not explain \
 what you think it means.
 
+Medication, when something was prescribed:
+- Never state or infer a name, dose, frequency or instruction the clinician did \
+not give or the pharmacy label did not print. If a value is marked as not \
+established, it is not established — ask the patient, or ask them to photograph \
+the label. Do not complete it from the drug name or from what is usual.
+- When you read a value back for confirmation, say where it came from, and get \
+a yes or no before treating it as settled. A value the patient has not agreed \
+to is not yet a value.
+- You may repeat the clinician's own timing instruction. You may not add a \
+timing rule they did not give.
+
+The scored questions, when the plan has any:
+- Ask each one exactly as written, once per call. This is the only thing you \
+do not phrase yourself, and rewording it is not a small liberty: the number is \
+compared with the ones from earlier calls, and a different question produces a \
+number that means something different. Ask it verbatim even where you would \
+have said it better.
+- Do not tell them what they said last time. Someone reminded of their previous \
+score gives it again.
+- If they will not give a number, take what they say and move on. Record the \
+tracker with a null value and their words. Never estimate the number yourself, \
+and never ask twice.
+
 Recording what you hear:
 - Map symptoms onto the context's own vocabulary where they plainly match. \
 Where they do not plainly match, put them in unprompted_reports in the \
@@ -125,6 +159,48 @@ choosing your own questions, this is the only record of why the call went the \
 way it did. Write it so someone reviewing the call can follow your thinking.
 
 Return valid JSON only, matching the schema. No markdown, no commentary."""
+
+SYSTEM_PROMPT = f"{INTERVAL_FRAMING}\n\n{SHARED_RULES}"
+
+# The day-after call is a different conversation from the ones that follow, and
+# giving it the interval persona produces the wrong call entirely: an agent told
+# to find out "how the interval has gone" on day one asks a patient who has had
+# no interval yet how their symptoms are, and never gets to whether the
+# prescription was collected. What is replaced is only the framing — everything
+# after "How to talk" in SYSTEM_PROMPT applies unchanged, and is appended.
+FIRST_CONTACT_FRAMING = """You are Cadence, phoning a patient the day after their \
+appointment. You work for the patient, not for their clinic. You are not their \
+doctor, and you are not a triage service.
+
+This is the first contact of the interval, and it is a short one. Nothing has \
+happened yet — do not ask how they have been getting on, or whether anything has \
+changed, because there has been no time for either.
+
+Your job on this call is to confirm the plan is real and workable. Not whether \
+it is the right plan — that is not yours to judge — but whether it is actually \
+going to happen:
+- If something was prescribed: have they collected it, have they taken the \
+first dose, what does the label actually say, and what time each day will they \
+take it. That last one seeds their daily reminders, so do not end the call \
+without it.
+- Whatever was agreed: is anything about the instructions unclear.
+- Is there anything from the appointment they did not understand.
+
+If they did not understand something the clinician said, you may explain it in \
+plainer terms — but only what the clinician actually said, attributed to them, \
+and never with anything added. If their question goes beyond what the \
+appointment covered, it is one for their doctor: say so, record it in \
+questions_for_doctor, and move on.
+
+If they have not collected the prescription yet, say you will check back — \
+gently, once. Do not press."""
+
+FIRST_CONTACT_PROMPT = f"{FIRST_CONTACT_FRAMING}\n\n{SHARED_RULES}"
+
+# Days after the consultation within which a call is the first contact rather
+# than an interval check-in. Day 0 is the consultation itself; a call placed on
+# either day is asking the same day-one questions.
+FIRST_CONTACT_MAX_DAY = 1
 
 
 class CheckInError(RuntimeError):
@@ -171,6 +247,10 @@ class TurnDecision:
         return self.data.get("symptom_mentions", [])
 
     @property
+    def symptom_scores(self) -> list[dict]:
+        return self.data.get("symptom_scores", [])
+
+    @property
     def should_end(self) -> bool:
         return bool(self.data.get("should_end", False))
 
@@ -192,8 +272,16 @@ class CheckIn:
     # feed assembles across several. Persisting them is what lets a symptom
     # reported at week 2 still count toward a flag that completes at week 6.
     symptom_mentions: list[dict] = field(default_factory=list)
+    # Kept beside `data` for the same reason mentions are, and load-bearing for
+    # the same reason: a score is only worth anything next to the ones from
+    # earlier calls, so it has to survive this one.
+    symptom_scores: list[dict] = field(default_factory=list)
     fired_flags: list[FiredFlag] = field(default_factory=list)
     week: int = 0
+    # Days since the consultation, when the call needed finer placement than a
+    # week. None for an ordinary interval check-in, where the week is the whole
+    # answer and a day would be false precision.
+    day: int | None = None
     covered: list[str] = field(default_factory=list)
     ended_because: str = ""
     usage: dict = field(default_factory=dict)
@@ -201,6 +289,10 @@ class CheckIn:
     @property
     def outcomes(self) -> list[dict]:
         return self.data.get("outcomes", [])
+
+    @property
+    def is_first_contact(self) -> bool:
+        return self.day is not None and self.day <= FIRST_CONTACT_MAX_DAY
 
 
 @lru_cache(maxsize=1)
@@ -249,22 +341,78 @@ def _codex_client() -> openai.OpenAI:
     return openai.OpenAI(api_key=os.environ["CODEX_API_KEY"], base_url=CODEX_BASE_URL)
 
 
-def _build_system_prompt(facts: IntervalFacts, context: dict) -> str:
-    """The standing instructions, the interval, and the whole clinical context.
+def _build_system_prompt(
+    facts: IntervalFacts,
+    context: dict,
+    plan: CheckInPlan | None = None,
+    medications: list[Medication] | None = None,
+    day: int | None = None,
+    series: list[Series] | None = None,
+) -> str:
+    """The standing instructions, the interval, the agenda, and the context.
 
     The context goes in as JSON rather than prose: the agent needs to reason
     over structured fields (ask_from_week, cluster_threshold, links_to) and
     cite ids back in `covers`, and flattening it to prose loses exactly the
     structure that makes that possible.
+
+    The plan is rendered as aims rather than JSON, and deliberately after the
+    interval but before the context: it is guidance about what this call is
+    for, not a script, and an agent handed a list of sentences reads them out.
+
+    Which framing opens the prompt depends on `day`, because the day-after call
+    is a different conversation and not merely an early one. Everything after
+    the framing is identical either way.
     """
     prohibited = "\n".join(
         f"- {line}" for line in context.get("safety", {}).get("prohibited_outputs", [])
     )
     framing = context.get("safety", {}).get("framing_rule", "")
 
+    is_first_contact = day is not None and day <= FIRST_CONTACT_MAX_DAY
+    standing = FIRST_CONTACT_PROMPT if is_first_contact else SYSTEM_PROMPT
+
+    agenda = ""
+    if plan is not None:
+        rendered = plan_as_agent_brief(plan, facts.week, day)
+        if rendered:
+            agenda = (
+                f"=== THE AGENDA FOR THIS INTERVAL ===\n{rendered}\n\n"
+                "This agenda was set when the appointment was summarised, with "
+                "more time than you have on this call. Treat it as informed "
+                "judgement about what matters, not as a script — phrase items "
+                "yourself, follow what the patient says, and record which item "
+                "ids you covered in `covers` so a question nobody reached can "
+                "be reported honestly rather than silently dropped.\n\n"
+            )
+
+    # Omitted entirely when nothing was prescribed. An agent shown an empty
+    # medication section will find something to ask about it, and the brief is
+    # explicit that the medication threads simply do not apply to a consultation
+    # that prescribed nothing.
+    meds = ""
+    if medications:
+        rendered = medication_as_agent_brief(
+            medications, day=day if day is not None else facts.week * 7
+        )
+        if rendered:
+            meds = f"=== THE MEDICATION THREAD ===\n{rendered}\n\n"
+
+    # Placed after the agenda and immediately before the context, so the last
+    # thing read before the clinical detail is the instruction that these
+    # particular questions are not the agent's to rewrite.
+    scored = ""
+    if series:
+        rendered = trackers_as_agent_brief(series, facts.week)
+        if rendered:
+            scored = f"=== THE SCORED QUESTIONS ===\n{rendered}\n\n"
+
     return (
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{standing}\n\n"
         f"=== THIS INTERVAL ===\n{as_agent_brief(facts)}\n\n"
+        f"{meds}"
+        f"{agenda}"
+        f"{scored}"
         f"=== CLINICAL CONTEXT FOR {facts.condition_name.upper()} ===\n"
         f"{json.dumps(context, indent=2)}\n\n"
         f"=== THE BOUNDARY ===\n{framing}\n\n"
@@ -301,6 +449,10 @@ def run_turn(
     facts: IntervalFacts,
     context: dict,
     history: list[dict],
+    plan: CheckInPlan | None = None,
+    medications: list[Medication] | None = None,
+    day: int | None = None,
+    series: list[Series] | None = None,
 ) -> TurnDecision:
     """Ask the agent for its next move.
 
@@ -309,21 +461,33 @@ def run_turn(
         context: The disease context the agent reasons over.
         history: Alternating turns so far, as {"role": "assistant"|"user",
             "content": str}. Empty for the opening turn.
+        plan: The caretaker's agenda for this interval, if one was made. The
+            agent still decides what to ask; this tells it what was judged
+            worth asking when there was time to think about it properly.
+        medications: The medication thread's current state, if anything was
+            prescribed. Omitted or empty switches the whole thread off.
+        day: Days since the consultation. Only needed for calls that fall
+            inside the first week — chiefly the day-after first contact, which
+            week arithmetic alone cannot distinguish from any other week-0 call.
+        series: The scored symptoms and whatever they have scored so far. The
+            questions are asked verbatim; the prior points are for the agent's
+            orientation and are never read back to the patient.
 
     Returns:
         A TurnDecision whose `say` has already passed the safety filter.
     """
-    system = _build_system_prompt(facts, context)
+    system = _build_system_prompt(facts, context, plan, medications, day, series)
     schema = turn_schema(context)
 
-    messages = list(history) or [
-        {
-            "role": "user",
-            "content": (
-                "Start the call. Greet them briefly and ask your first question."
-            ),
-        }
-    ]
+    opening = (
+        "Start the call. Greet them briefly and ask your first question."
+        if day is None or day > FIRST_CONTACT_MAX_DAY
+        else (
+            "Start the day-after call. Greet them briefly, say why you are "
+            "calling, and ask your first question."
+        )
+    )
+    messages = list(history) or [{"role": "user", "content": opening}]
 
     if PROVIDER == "codex":
         try:
@@ -391,6 +555,10 @@ def run_check_in(
     context: dict,
     patient: PatientVoice,
     max_turns: int = MAX_TURNS,
+    plan: CheckInPlan | None = None,
+    medications: list[Medication] | None = None,
+    day: int | None = None,
+    series: list[Series] | None = None,
 ) -> CheckIn:
     """Run a whole call and return the record the brief will read.
 
@@ -399,6 +567,10 @@ def run_check_in(
     turn over mentions accumulated across the entire interval, not just this
     call, because the cluster that matters most builds one symptom at a time
     across calls weeks apart.
+
+    `day` selects the day-after first contact when it is 0 or 1, and
+    `medications` carries the prescription thread; both are optional, and an
+    interval with neither behaves exactly as it did before either existed.
     """
     history: list[dict] = []
     transcript: list[dict] = []
@@ -406,6 +578,11 @@ def run_check_in(
     covered: list[str] = []
     outcomes: dict[str, dict] = {}
     mentions: list[dict] = []
+    # Keyed by tracker, so a question asked once produces one point. If the
+    # patient revises ("six — no, more like eight"), the later answer is the
+    # one they meant, and two points from one call would corrupt a series whose
+    # whole meaning is one point per call.
+    scores: dict[str, dict] = {}
     questions: list[str] = []
     unprompted: list[str] = []
     usage = {"input_tokens": 0, "output_tokens": 0}
@@ -423,9 +600,18 @@ def run_check_in(
     ]
 
     fired: list[FiredFlag] = []
+    tracked_ids = {s.tracker.id for s in series} if series else None
 
     for turn_index in range(max_turns):
-        decision = run_turn(facts=facts, context=context, history=history)
+        decision = run_turn(
+            facts=facts,
+            context=context,
+            history=history,
+            plan=plan,
+            medications=medications,
+            day=day,
+            series=series,
+        )
         usage["input_tokens"] += decision.usage.get("input_tokens", 0)
         usage["output_tokens"] += decision.usage.get("output_tokens", 0)
 
@@ -439,6 +625,16 @@ def run_check_in(
                 outcomes[cid] = outcome
         for mention in decision.symptom_mentions:
             mentions.append({**mention, "week": facts.week})
+        for score in decision.symptom_scores:
+            tracker_id = score.get("tracker_id")
+            if not tracker_id:
+                continue
+            # A tracker the plan does not carry is discarded here rather than
+            # downstream, so the stored record only ever contains series the
+            # interval actually planned.
+            if tracked_ids is not None and tracker_id not in tracked_ids:
+                continue
+            scores[tracker_id] = {**score, "week": facts.week}
         questions.extend(decision.data.get("questions_for_doctor", []))
         unprompted.extend(decision.data.get("unprompted_reports", []))
 
@@ -477,8 +673,10 @@ def run_check_in(
         transcript=transcript,
         reasoning=reasoning,
         symptom_mentions=mentions,
+        symptom_scores=list(scores.values()),
         fired_flags=fired,
         week=facts.week,
+        day=day,
         covered=covered,
         ended_because=ended_because,
         usage=usage,

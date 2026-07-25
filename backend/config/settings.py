@@ -168,12 +168,12 @@ CODEX_API_KEY = os.environ.get('CODEX_API_KEY')
 CODEX_BASE_URL = os.environ.get('CODEX_BASE_URL') or 'https://api.openai.com/v1'
 CODEX_MODEL = os.environ.get('CODEX_MODEL') or 'gpt-5.5'
 
-# Which backend answers the LLM calls. "anthropic" is the default so an unset
-# env behaves as before; "codex" routes to an OpenAI-compatible endpoint.
-LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'anthropic').strip().lower()
-CODEX_API_KEY = os.environ.get('CODEX_API_KEY')
-CODEX_BASE_URL = os.environ.get('CODEX_BASE_URL', 'https://api.openai.com/v1')
-CODEX_MODEL = os.environ.get('CODEX_MODEL', 'gpt-5')
+# Scribe transcribes the visit; the Agents platform runs the voice check-ins.
+# Both are optional: with the agent unset, /api/checkin/session returns 503 and
+# the client falls back to the check-in form, which is the documented safety
+# valve for a live demo.
+ELEVENLABS_API_KEY = os.environ.get('ELEVENLABS_API_KEY')
+ELEVENLABS_AGENT_ID = os.environ.get('ELEVENLABS_AGENT_ID')
 
 # Hackathon MVP: one hardcoded patient/condition, no auth model at all.
 PATIENT_ID = os.environ.get('PATIENT_ID') or '00000000-0000-0000-0000-000000000001'

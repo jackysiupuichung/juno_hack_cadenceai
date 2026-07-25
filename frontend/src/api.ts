@@ -99,6 +99,48 @@ export interface Brief {
   content: BriefContent
 }
 
+export interface CheckInOpenCommitment {
+  commitment_id: string
+  text: string
+  type: string
+  status: string
+}
+
+export interface CheckInContext {
+  week: number
+  visit_date: string
+  is_first_check_in: boolean
+  interval_brief: string
+  disease_context: string
+  open_commitments: CheckInOpenCommitment[]
+  already_reported: string[]
+  plan_brief?: string
+}
+
+export interface CheckInSession {
+  agent_id: string
+  conversation_token: string
+  dynamic_variables: Record<string, string | number | boolean>
+  expires_in: number
+}
+
+export interface RedFlag {
+  flag_id: string
+  urgency: string
+  matched: boolean
+  patient_facing: string
+  action: string
+  first_seen_week: number
+}
+
+export interface CheckInResult {
+  red_flags?: RedFlag[]
+  [key: string]: unknown
+}
+
+/** Thrown when the voice session endpoint is unavailable (e.g. 503, keys unset). */
+export class VoiceUnavailableError extends Error {}
+
 export const api = {
   getPatient: () => request<Patient>('/patient'),
   setPatientName: (name: string) => request<Patient>('/patient', json({ name }, 'PATCH')),
@@ -136,8 +178,36 @@ export const api = {
   checkin: (data: {
     condition_id: string
     transcript?: string
+    symptom_mentions?: unknown[]
     outcomes?: { commitment_id: string; status: string; note: string }[]
-  }) => request<unknown>('/checkin', json(data)),
+    covered_item_ids?: string[]
+  }) => request<CheckInResult>('/checkin', json(data)),
+
+  checkinContext: (conditionId: string) =>
+    request<CheckInContext>(`/checkin/context?condition_id=${conditionId}`),
+
+  /**
+   * Mints a short-lived ElevenLabs conversation token. Throws
+   * VoiceUnavailableError when the backend has no agent/API key configured,
+   * so callers can fall back to the text form.
+   */
+  checkinSession: async (conditionId: string): Promise<CheckInSession> => {
+    const res = await fetch(`${API_BASE}/checkin/session`, json({ condition_id: conditionId }))
+    if (res.status === 503) {
+      let detail = 'Voice check-in is not configured on this server.'
+      try {
+        const body = (await res.json()) as { error?: string }
+        if (body?.error) detail = body.error
+      } catch {
+        // keep the default message
+      }
+      throw new VoiceUnavailableError(detail)
+    }
+    if (!res.ok) {
+      throw new Error(`POST /checkin/session failed: ${res.status} ${await res.text()}`)
+    }
+    return res.json()
+  },
 
   brief: (conditionId: string) => request<Brief>('/brief', json({ condition_id: conditionId })),
 

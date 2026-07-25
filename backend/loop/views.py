@@ -6,32 +6,45 @@ from __future__ import annotations
 
 import json
 from datetime import date as date_cls
+from datetime import timedelta
 
+import requests
 from django.conf import settings
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from capture import events as ev
+from capture import safety
 from capture.interval import (
     IntervalError,
     as_agent_brief,
     compute_interval_facts,
     load_context,
     observations,
+    watch_for_vocabulary,
 )
+from capture.plan import CheckInPlan, PlanError, build_plan
+from capture.plan import as_agent_brief as plan_as_agent_brief
+from capture.plan import coverage as plan_coverage
 from capture.redflags import evaluate_flags
 
 from . import repo
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
+    EVENTS_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     SUMMARISE_SYSTEM_PROMPT,
     LLMJSONError,
     call_llm_json,
 )
 
-RESOLVED_STATUSES = {"done", "not_done", "changed"}
+# A commitment leaves "pending" once a check-in actually settles it. "partial"
+# now belongs here: the patient took four of the seven days, which is a real
+# answer and one the brief must report. It was previously filtered out, so the
+# commitment sat at "pending" as though nobody had ever asked.
+RESOLVED_STATUSES = {"done", "not_done", "partial", "changed"}
 
 # One condition for the demo; the context file is matched by this id. Widening
 # this means matching a visit's diagnosis to a context file, which is a real
@@ -44,6 +57,12 @@ def _interval_facts(condition_id: str):
 
     Returns (facts, context, check_ins) or (None, None, []) when there is no
     visit yet — the loop cannot describe an interval that has not opened.
+
+    The interval belongs to the latest visit, but the record does not start
+    there. A patient on their third appointment has a history, and a check-in
+    that opens as though they had none is exactly the cold start Cadence
+    exists to end — so the brief that closed the previous interval, and the
+    dates of the visits before this one, are carried in alongside.
     """
     visits = repo.list_visits(condition_id)
     if not visits:
@@ -54,12 +73,20 @@ def _interval_facts(condition_id: str):
     context = load_context(CONDITION_CONTEXT)
 
     visit_date = date_cls.fromisoformat(latest["date"][:10])
+
+    # Check-ins belong to the condition, not to a visit, so on a second
+    # interval the table still holds the previous one's calls. Only those
+    # after this visit describe this interval; the rest are history the
+    # previous brief already accounts for.
     prior = []
     for row in sorted(check_ins, key=lambda c: c["date"]):
+        row_date = date_cls.fromisoformat(row["date"][:10])
+        if row_date < visit_date:
+            continue
         raw = row.get("raw") or {}
         prior.append(
             {
-                "week": max(0, (date_cls.fromisoformat(row["date"][:10]) - visit_date).days // 7),
+                "week": max(0, (row_date - visit_date).days // 7),
                 "outcomes": raw.get("outcomes", []),
                 "symptom_mentions": raw.get("symptom_mentions", []),
                 "unprompted_reports": raw.get("unprompted_reports", []),
@@ -67,14 +94,116 @@ def _interval_facts(condition_id: str):
             }
         )
 
+    previous_brief = None
+    if latest.get("previous_brief_id"):
+        brief_row = repo.get_brief(latest["previous_brief_id"])
+        previous_brief = (brief_row or {}).get("content")
+
+    # The stored summary jsonb is the visit as Claude extracted it; it carries
+    # no status, because status is what the interval since has established.
+    # Overlay the commitment rows, which do — otherwise every commitment reads
+    # as "unknown" no matter what the patient has since answered.
+    summary = dict(latest.get("summary") or {})
+    rows = repo.get_commitments_for_visit(latest["id"])
+    if rows:
+        summary["commitments"] = [
+            {
+                "id": row["id"],
+                "text": row.get("text", ""),
+                "type": row.get("type", ""),
+                "timeframe": row.get("timeframe", ""),
+                "source_quote": row.get("source_quote", ""),
+                "status": row.get("status", "pending"),
+            }
+            for row in rows
+        ]
+
     facts = compute_interval_facts(
-        summary=latest.get("summary") or {},
+        summary=summary,
         context=context,
         visit_date=visit_date,
         today=date_cls.today(),
         prior_check_ins=prior,
+        previous_brief=previous_brief,
+        prior_visit_dates=[date_cls.fromisoformat(v["date"][:10]) for v in visits[1:]],
     )
     return facts, context, prior
+
+
+def _extract_events(transcript: str, *, on: date_cls, source: str, **links) -> list[dict]:
+    """Dated events from a transcript, ready to insert.
+
+    Returns [] on any failure. Event extraction is an enrichment: a visit whose
+    chronology could not be parsed is still a visit, and losing the summary
+    because the dating call failed would trade the record for a detail. The
+    conversation date goes in explicitly because every relative timing the
+    patient gives — "a fortnight ago" — is resolved against it.
+    """
+    if not transcript.strip():
+        return []
+
+    user_content = (
+        f"Conversation date: {on.isoformat()}\n\n"
+        f"Transcript:\n{transcript}"
+    )
+    try:
+        extracted = call_llm_json(EVENTS_SYSTEM_PROMPT, user_content, schema_name="event")
+    except LLMJSONError:
+        return []
+
+    rows = []
+    for item in extracted.get("events", []):
+        event = ev.from_extraction(item, conversation_date=on, source=source)
+        if event is not None:
+            rows.append(ev.to_row(event, **links))
+    return rows
+
+
+def _resolve_scheduled(condition_id: str, created: list[dict]) -> None:
+    """Close out a due date when the thing it was waiting for actually happens.
+
+    Matching is by kind alone, taking the oldest outstanding due date of that
+    kind. That is deliberately loose: the alternative is asking a model whether
+    "the blood test I had last Tuesday" is the same test the guideline
+    scheduled for week 7, and a wrong answer there either hides a genuinely
+    overdue test or reports one that was done. Loose matching fails toward
+    marking things done, so the counterpart is that `overdue` is only ever
+    computed from what remains — an unmatched event never invents a new gap.
+    """
+    done_kinds = {
+        row["kind"] for row in created if row.get("occurred_at") and row.get("kind")
+    }
+    if not done_kinds:
+        return
+
+    outstanding = [
+        row
+        for row in repo.list_events(condition_id)
+        if row.get("due_at") and not row.get("occurred_at") and not row.get("fulfilled_by")
+    ]
+    outstanding.sort(key=lambda r: r["due_at"])
+
+    for row in created:
+        if not row.get("occurred_at"):
+            continue
+        match = next(
+            (o for o in outstanding if o["kind"] == row["kind"]), None
+        )
+        if match and row.get("id"):
+            repo.mark_event_fulfilled(match["id"], row["id"])
+            outstanding.remove(match)
+
+
+def _load_plan(condition_id: str) -> CheckInPlan | None:
+    """The caretaker's agenda for the current interval, if one was made.
+
+    Returns None rather than raising when there is no plan: visits recorded
+    before planning existed, and visits whose planning call failed, must still
+    be able to run a check-in. The agent falls back to reasoning from the
+    disease context alone, which is what it did before plans existed.
+    """
+    row = repo.get_latest_plan(condition_id)
+    return CheckInPlan(data=row["content"]) if row else None
 
 
 def _condition_or_404(condition_id: str):
@@ -203,6 +332,26 @@ def ask(request):
             {"error": "Claude did not return valid JSON", "raw": exc.raw_text},
             status=status.HTTP_502_BAD_GATEWAY,
         )
+
+    # The only free-text answer Cadence gives a patient. The prompt forbids
+    # advice, but this is the same rope the check-in agent gets and the same
+    # backstop applies: a question like "should I take more?" invites exactly
+    # the sentence that crosses the line. Fails closed to the fallback, and
+    # says so, rather than silently returning something weaker than was asked.
+    # This endpoint reads a record back to the patient, so a clinical statement
+    # attributed to their clinician is the answer, not a violation — "the
+    # doctor said your thyroid levels are low" is what the appointment was.
+    # Unattributed clinical claims, and anything recommending a change, are
+    # still caught.
+    answer = result.get("answer", "")
+    if safety.check_utterance(answer, allow_attributed=True):
+        result["answer"] = (
+            "That one is for your doctor — it is not something I can answer "
+            "from this record."
+        )
+        result["grounded"] = False
+        result["withheld"] = True
+
     return Response(result)
 
 
@@ -278,6 +427,12 @@ def summarise(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
 
+    # The brief the patient walked in with, if there was one. Recording it is
+    # what turns a sequence of visits into a record: this interval knows which
+    # interval preceded it, so the next brief can say what carried over rather
+    # than starting from the transcript again.
+    previous_brief = repo.get_latest_brief(condition["id"])
+
     visit = repo.create_visit(
         condition["id"],
         date=request.data.get("date") or date_cls.today().isoformat(),
@@ -287,10 +442,100 @@ def summarise(request):
         organisation_address=request.data.get("organisation_address", ""),
         transcript=transcript,
         summary=summary,
+        previous_brief_id=(previous_brief or {}).get("id"),
     )
     commitments = repo.create_commitments(visit["id"], summary.get("commitments", []))
 
-    return Response({**visit, "commitments": commitments}, status=status.HTTP_201_CREATED)
+    # The caretaker plans the interval this visit just opened, while the visit
+    # is fresh and nothing is waiting on it. A failure here must not lose the
+    # visit — the summary and commitments are the durable artifact, and a
+    # check-in can still run unplanned off the disease context alone. The
+    # error is reported so the client can offer a re-plan rather than silently
+    # running the whole interval without an agenda.
+    plan_row, plan_error = None, None
+    try:
+        context = load_context(CONDITION_CONTEXT)
+        built = build_plan(summary=summary, context=context, visit_date=visit["date"])
+        plan_row = repo.create_plan(
+            visit["id"], built.data, condition_context=CONDITION_CONTEXT
+        )
+    except (PlanError, IntervalError) as exc:
+        plan_error = str(exc)
+
+    # The chronology this visit opens: the visit itself, anything the
+    # transcript dated, and the monitoring events the guideline says are now
+    # due. The last of those is what a calendar can actually render — a blood
+    # test due on a date, rather than "week 7" recomputed on every read.
+    visit_date = date_cls.fromisoformat(visit["date"][:10])
+    rows = [
+        ev.to_row(
+            ev.Event(
+                kind="visit",
+                label=f"Consultation ({visit.get('care_setting', 'gp')})",
+                occurred_at=visit_date,
+                precision="day",
+                source="consultation",
+                recorded_at=visit_date,
+            ),
+            condition_id=condition["id"],
+            visit_id=visit["id"],
+        )
+    ]
+    rows += _extract_events(
+        transcript,
+        on=visit_date,
+        source="consultation",
+        condition_id=condition["id"],
+        visit_id=visit["id"],
+    )
+    rows += _scheduled_rows(condition["id"], visit["id"], visit_date)
+
+    created_events = repo.create_events(rows) if rows else []
+
+    return Response(
+        {
+            **visit,
+            "commitments": commitments,
+            "plan": (plan_row or {}).get("content"),
+            "plan_error": plan_error,
+            "events": created_events,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+def _scheduled_rows(condition_id: str, visit_id: str, visit_date: date_cls) -> list[dict]:
+    """Due dates the guideline implies, as rows a calendar can render.
+
+    Only events whose clock this visit actually starts. `dose_change` and
+    `last_result` hang off things that have not happened yet; when they do, the
+    check-in that reports them schedules the follow-up rather than this.
+    """
+    try:
+        context = load_context(CONDITION_CONTEXT)
+    except IntervalError:
+        return []
+
+    rows = []
+    for event in context.get("monitoring", []):
+        if event.get("trigger") != "treatment_start":
+            continue
+        weeks = int(event.get("interval_weeks", 0))
+        rows.append(
+            ev.to_row(
+                ev.Event(
+                    kind="test_taken",
+                    label=event.get("event", ""),
+                    due_at=visit_date + timedelta(weeks=weeks),
+                    precision="week",
+                    source="scheduled",
+                    context_ids=(event.get("id", ""),),
+                ),
+                condition_id=condition_id,
+                visit_id=visit_id,
+            )
+        )
+    return rows
 
 
 @api_view(["GET"])
@@ -317,12 +562,19 @@ def checkin_context(request):
             {"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST
         )
 
+    plan = _load_plan(condition["id"])
+
     return Response(
         {
             "week": facts.week,
             "visit_date": facts.visit_date.isoformat(),
             "is_first_check_in": facts.is_first_check_in,
             "interval_brief": as_agent_brief(facts),
+            # The agenda decided when the visit was summarised, filtered to
+            # what is due this week. Empty when the interval was never planned,
+            # which the agent handles by reasoning from the context alone.
+            "plan_brief": plan_as_agent_brief(plan, facts.week) if plan else "",
+            "plan": plan.data if plan else None,
             "disease_context": context,
             "open_commitments": [
                 {
@@ -342,6 +594,106 @@ def checkin_context(request):
 
 
 @api_view(["POST"])
+def checkin_session(request):
+    """Mint a short-lived token so the browser can talk to the voice agent.
+
+    The API key never leaves the server. ElevenLabs issues a conversation
+    token scoped to one session; the browser opens the WebRTC connection with
+    that, so a leaked token expires rather than granting access to the account.
+
+    Everything that varies per call goes in dynamic_variables rather than into
+    the agent's standing configuration, because the agent is configured once
+    and this interval changes weekly. The agent's prompt references these by
+    name; the clinical reasoning it does is over the same interval brief and
+    plan the CLI agent reads, so a voice call and a typed one are the same
+    check-in conducted differently.
+    """
+    condition, error = _condition_or_404(request.data.get("condition_id"))
+    if error:
+        return error
+
+    agent_id = settings.ELEVENLABS_AGENT_ID
+    api_key = settings.ELEVENLABS_API_KEY
+    if not agent_id or not api_key:
+        # Most people running this repo will not have a voice agent
+        # provisioned. Say so precisely enough to act on, and let the client
+        # fall back to the form rather than presenting a broken call button.
+        return Response(
+            {
+                "error": "Voice check-in is not configured. Set ELEVENLABS_AGENT_ID "
+                "and ELEVENLABS_API_KEY, or use the check-in form."
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        facts, context, _ = _interval_facts(condition["id"])
+    except IntervalError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    if facts is None:
+        return Response(
+            {"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    plan = _load_plan(condition["id"])
+
+    try:
+        response = requests.get(
+            "https://api.elevenlabs.io/v1/convai/conversation/token",
+            params={"agent_id": agent_id},
+            headers={"xi-api-key": api_key},
+            timeout=10,
+        )
+        response.raise_for_status()
+        token = response.json().get("token")
+    except requests.RequestException as exc:
+        return Response(
+            {"error": f"Could not reach ElevenLabs: {exc}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    if not token:
+        return Response(
+            {"error": "ElevenLabs returned no conversation token"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    # The safety boundary travels with the call. The browser agent is outside
+    # safety.py's reach — nothing it says passes through the scrubber — so the
+    # prohibitions go in as an explicit variable rather than being left to the
+    # agent's standing prompt, which is configured elsewhere and can drift.
+    prohibited = "\n".join(
+        f"- {line}" for line in context.get("safety", {}).get("prohibited_outputs", [])
+    )
+
+    return Response(
+        {
+            "agent_id": agent_id,
+            "conversation_token": token,
+            "dynamic_variables": {
+                "condition_name": facts.condition_name,
+                "plain_name": facts.plain_name,
+                "week": str(facts.week),
+                "is_first_check_in": str(facts.is_first_check_in).lower(),
+                "interval_brief": as_agent_brief(facts),
+                "plan_brief": plan_as_agent_brief(plan, facts.week) if plan else "",
+                "framing_rule": context.get("safety", {}).get("framing_rule", ""),
+                "prohibited_outputs": prohibited,
+                # The only patient-facing clinical sentences the agent may say,
+                # supplied verbatim so it reads one rather than composing its
+                # own. Everything else it says about a symptom is prohibited.
+                "red_flag_lines": "\n".join(
+                    f"- {f.get('id')}: {f.get('patient_facing', '')} {f.get('action', '')}".strip()
+                    for f in context.get("red_flags", [])
+                ),
+            },
+            "expires_in": 600,
+        }
+    )
+
+
+@api_view(["POST"])
 def checkin(request):
     """
     Voice path:        { "condition_id": "...", "transcript": "..." }
@@ -354,9 +706,44 @@ def checkin(request):
     open_commitments = repo.get_open_commitments(condition["id"])
     transcript = request.data.get("transcript", "")
 
+    # Symptom mentions are not part of check_in.schema.json, but they must be
+    # stored: the over-replacement cluster assembles one symptom at a time
+    # across calls weeks apart, so a mention dropped here is a flag that never
+    # fires.
+    mentions = request.data.get("symptom_mentions", [])
+    covered_item_ids = request.data.get("covered_item_ids", [])
+
     if transcript:
         commitments_context = [{"commitment_id": c["id"], "text": c["text"]} for c in open_commitments]
         user_content = f"Transcript:\n{transcript}\n\nOpen commitments:\n{commitments_context}"
+
+        # A browser voice agent speaks; it does not classify. It cannot map
+        # "I've been boiling at night" onto the context's canonical phrase,
+        # and a mention that never gets mapped is a red flag that never fires
+        # — which is the catch this product exists for. So the mapping happens
+        # here, over the transcript, against the same constrained vocabulary
+        # the CLI agent is bound to. The enum is what makes the count downstream
+        # trustworthy: a phrase the context does not name cannot enter.
+        vocabulary, flag_ids = [], []
+        try:
+            ctx = load_context(CONDITION_CONTEXT)
+            vocabulary = watch_for_vocabulary(ctx)
+            flag_ids = [f["id"] for f in ctx.get("red_flags", [])]
+        except IntervalError:
+            pass
+
+        if vocabulary and not mentions:
+            user_content += (
+                "\n\nSymptom vocabulary — map anything the patient described "
+                "onto EXACTLY one of these phrases, or leave it out entirely. "
+                "A wrong match is worse than no match:\n"
+                + "\n".join(f"- {phrase}" for phrase in vocabulary)
+                + "\n\nRed flag ids: " + ", ".join(flag_ids)
+                + "\n\nReturn symptom_mentions as a list of "
+                '{"watch_for", "flag_id", "patient_words"}, using only the '
+                "phrases above."
+            )
+
         try:
             mapped = call_llm_json(
                 CHECKIN_SYSTEM_PROMPT, user_content, schema_name="check_in"
@@ -368,27 +755,67 @@ def checkin(request):
             )
         outcome_rows = mapped.get("outcomes", [])
         raw = mapped
+
+        # The schema does not carry symptom_mentions, so anything the model
+        # returned arrives outside it and is filtered to the vocabulary here
+        # rather than trusted. Explicitly supplied mentions win.
+        if not mentions:
+            mentions = [
+                m
+                for m in (mapped.get("symptom_mentions") or [])
+                if isinstance(m, dict) and m.get("watch_for") in set(vocabulary)
+            ]
     else:
         outcome_rows = request.data.get("outcomes", [])
         raw = {"outcomes": outcome_rows}
 
-    # Symptom mentions are not part of check_in.schema.json, but they must be
-    # stored: the over-replacement cluster assembles one symptom at a time
-    # across calls weeks apart, so a mention dropped here is a flag that never
-    # fires. The voice agent supplies them already mapped to the context's
-    # vocabulary; a text-form check-in has none.
-    raw["symptom_mentions"] = request.data.get("symptom_mentions", [])
+    raw["symptom_mentions"] = mentions
 
     check_in = repo.create_check_in(
         condition["id"],
         date=request.data.get("date") or date_cls.today().isoformat(),
         transcript=transcript,
         raw=raw,
+        # Which planned items this call actually reached. Recorded per call
+        # because the gap between what was planned and what was asked is
+        # itself reportable — a question nobody got to is different from a
+        # question answered, and the brief must not conflate them.
+        covered_item_ids=covered_item_ids,
     )
 
     valid_ids = {c["id"] for c in open_commitments}
     outcome_rows = [row for row in outcome_rows if row.get("commitment_id") in valid_ids]
     outcomes = repo.create_outcomes(check_in["id"], outcome_rows)
+
+    # When things happened, as opposed to when we heard about them. A patient
+    # who says "I stopped after about a fortnight" has dated an event three
+    # weeks before this call, and recording it against the call date would put
+    # it in the wrong place in the chronology.
+    check_in_date = date_cls.fromisoformat(check_in["date"][:10])
+    event_rows = [
+        ev.to_row(
+            ev.Event(
+                kind="check_in",
+                label="Check-in call",
+                occurred_at=check_in_date,
+                precision="day",
+                source="derived",
+                recorded_at=check_in_date,
+            ),
+            condition_id=condition["id"],
+            check_in_id=check_in["id"],
+        )
+    ]
+    if transcript:
+        event_rows += _extract_events(
+            transcript,
+            on=check_in_date,
+            source="patient_reported",
+            condition_id=condition["id"],
+            check_in_id=check_in["id"],
+        )
+    created_events = repo.create_events(event_rows) if event_rows else []
+    _resolve_scheduled(condition["id"], created_events)
 
     for row in outcome_rows:
         if row.get("status") in RESOLVED_STATUSES:
@@ -437,6 +864,126 @@ def checkin(request):
     )
 
 
+@api_view(["GET"])
+def events(request):
+    """The chronology: what happened when, and what is due.
+
+    The calendar's endpoint. Everything is returned in one call rather than
+    paged, because an interval is weeks long and a chronology split across
+    requests cannot be read in order.
+    """
+    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    if error:
+        return error
+
+    today = date_cls.today()
+    rows = repo.list_events(condition["id"])
+    parsed = [ev.from_row(row) for row in rows]
+
+    # Anything already fulfilled is history, not an outstanding due date.
+    fulfilled = {r["fulfilled_by"] for r in rows if r.get("fulfilled_by")}
+    outstanding = [
+        e
+        for e, r in zip(parsed, rows)
+        if not (r.get("due_at") and not r.get("occurred_at") and r.get("fulfilled_by"))
+    ]
+
+    def out(event: ev.Event) -> dict:
+        return {
+            "id": event.event_id,
+            "kind": event.kind,
+            "label": event.label,
+            "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+            "due_at": event.due_at.isoformat() if event.due_at else None,
+            "precision": event.precision,
+            "source": event.source,
+            "patient_words": event.patient_words,
+            "when": event.when(),
+            "reporting_delay_days": event.reporting_delay_days,
+            "context_ids": list(event.context_ids),
+        }
+
+    return Response(
+        {
+            "today": today.isoformat(),
+            "timeline": [out(e) for e in ev.timeline(outstanding) if e.is_dated],
+            "upcoming": [out(e) for e in ev.upcoming(outstanding, today=today)],
+            "overdue": [out(e) for e in ev.overdue(outstanding, today=today)],
+            "undated": [out(e) for e in outstanding if not e.is_dated and not e.is_scheduled],
+            "anchors": {k: v.isoformat() for k, v in ev.anchors(parsed).items()},
+            "fulfilled_count": len(fulfilled),
+        }
+    )
+
+
+@api_view(["GET", "POST"])
+def plan(request):
+    """The interval's agenda: what these weeks are meant to establish.
+
+    GET returns the current plan with its coverage — which items the calls
+    have reached and which are still outstanding. POST re-plans, for a visit
+    recorded before planning existed or one whose planning call failed.
+    """
+    condition_id = (
+        request.query_params.get("condition_id")
+        if request.method == "GET"
+        else request.data.get("condition_id")
+    )
+    condition, error = _condition_or_404(condition_id)
+    if error:
+        return error
+
+    if request.method == "POST":
+        visits = repo.list_visits(condition["id"])
+        if not visits:
+            return Response(
+                {"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        latest = visits[0]
+        try:
+            context = load_context(CONDITION_CONTEXT)
+            built = build_plan(
+                summary=latest.get("summary") or {},
+                context=context,
+                visit_date=latest["date"],
+            )
+        except IntervalError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except PlanError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        row = repo.create_plan(
+            latest["id"], built.data, condition_context=CONDITION_CONTEXT
+        )
+        return Response(row, status=status.HTTP_201_CREATED)
+
+    current = _load_plan(condition["id"])
+    if current is None:
+        return Response({"error": "no plan for this interval"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        facts, _, _ = _interval_facts(condition["id"])
+    except IntervalError:
+        facts = None
+
+    week = facts.week if facts else 0
+    covered = [
+        item_id
+        for row in repo.list_check_ins(condition["id"])
+        for item_id in (row.get("covered_item_ids") or [])
+    ]
+
+    return Response(
+        {
+            "plan": current.data,
+            "week": week,
+            "due_now": current.due_items(week),
+            "next_call_week": current.next_call_week(week),
+            "coverage": plan_coverage(current, covered, week),
+        }
+    )
+
+
 @api_view(["POST"])
 def brief(request):
     """Generate the next-visit brief from the latest visit + every check-in
@@ -474,17 +1021,64 @@ def brief(request):
     # test was due around week 7 and is 3 weeks past" is a fact about the
     # record; "the dose may be too high" is a diagnosis. Pre-writing the
     # factual form denies the model the chance to produce the second kind.
+    # The chronology, so the brief can say when things happened rather than
+    # only that they did. Sequence is often the finding — a symptom that began
+    # two weeks before it was reported reads differently from one reported the
+    # day it started, and neither is visible from outcomes alone.
+    today = date_cls.today()
+    event_rows = repo.list_events(condition["id"])
+    parsed = [ev.from_row(r) for r in event_rows]
+    outstanding = [
+        e
+        for e, r in zip(parsed, event_rows)
+        if not (r.get("due_at") and not r.get("occurred_at") and r.get("fulfilled_by"))
+    ]
+    if outstanding:
+        payload["chronology"] = [
+            {"when": e.when(), "what": e.label, "kind": e.kind}
+            for e in ev.timeline(outstanding)
+            if e.is_dated
+        ]
+
     user_content = json.dumps(payload, indent=2)
     try:
         facts, _, _ = _interval_facts(condition["id"])
         if facts is not None:
-            lines = observations(facts)
+            lines = observations(facts) + ev.observations(outstanding, today=today)
             if lines:
                 user_content += (
-                    "\n\n=== OBSERVATIONS — reproduce these verbatim, do not "
-                    "reword or extend them ===\n"
-                    + "\n".join(f"- {line}" for line in lines)
+                    # One observation per line, with no bullet character. The
+                    # instruction is to reproduce them verbatim, and a model
+                    # told that will faithfully reproduce a leading "- " too —
+                    # which then shows up as a stray bullet inside a JSON
+                    # string. The delimiter must not look like content.
+                    "\n\n=== OBSERVATIONS — reproduce each of these verbatim as "
+                    "its own entry, do not reword, extend, or prefix them ===\n"
+                    + "\n".join(lines)
                 )
+
+            # A planned question no call ever reached belongs in the brief's
+            # gaps. Without this the brief reads as though the interval covered
+            # everything worth covering, which is the one dishonesty that would
+            # make it worse than useless to the doctor reading it.
+            plan = _load_plan(condition["id"])
+            if plan is not None:
+                covered = [
+                    item_id
+                    for row in repo.list_check_ins(condition["id"])
+                    for item_id in (row.get("covered_item_ids") or [])
+                ]
+                missed = plan_coverage(plan, covered, facts.week)["missed"]
+                by_id = {item["id"]: item for item in plan.items}
+                if missed:
+                    user_content += (
+                        "\n\n=== PLANNED BUT NEVER ASKED — report each of these "
+                        "in `gaps`, as something the record does not cover. Do "
+                        "not infer what the answer would have been ===\n"
+                        + "\n".join(
+                            f"- {by_id[m]['intent']}" for m in missed if m in by_id
+                        )
+                    )
     except IntervalError:
         pass
 

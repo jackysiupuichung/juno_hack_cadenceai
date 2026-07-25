@@ -53,6 +53,31 @@
         }
       }
     },
+    "symptom_scores": {
+      "type": "array",
+      "description": "Ratings given in the utterance just heard, for the trackers frozen in the plan. Separate from symptom_mentions because the two answer different questions: a mention says a symptom occurred and feeds the red-flag cluster count, while a score says how bad it is on a scale that is comparable with the same question asked weeks earlier. A symptom can produce both from one answer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tracker_id", "value", "patient_words"],
+        "properties": {
+          "tracker_id": {
+            "type": "string",
+            "description": "The id of the tracked symptom from the plan. Anything not in the plan's tracked_symptoms is discarded downstream — a series nobody planned is not one the brief can read."
+          },
+          "value": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Their rating, 1-10, where 1 is not at all and 10 is the worst it has been. Null when the question was asked and no number came back — \"I don't know\", \"about the same\". Record the null rather than omitting the row, and never estimate a number from what they said: asked-and-unscored and never-asked are different facts, and a fabricated point is worse than a visible gap."
+          },
+          "patient_words": {
+            "type": "string",
+            "description": "What they actually said, quoted or closely paraphrased. The only record of the answer when value is null, and the texture behind it when it is not."
+          }
+        }
+      }
+    },
     "symptom_mentions": {
       "type": "array",
       "description": "Symptoms the patient described, mapped onto the disease context's own vocabulary. The watch_for value is constrained at call time to the union of the context's watch_for phrases, so a symptom the context does not name cannot enter the record — which is what makes the cluster count downstream trustworthy.",
