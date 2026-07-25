@@ -70,6 +70,10 @@ Rules:
   later be answered "did this happen?". Examples: starting a medication,
   getting a test, watching for a symptom, booking a follow-up. Prose advice
   with no action is not a commitment.
+- source_quote must be one unbroken span copied verbatim from the transcript,
+  so it can be checked against the recording word for word. Do not join
+  separate remarks with "..." — if no single span covers the whole
+  commitment, quote the one that best anchors it.
 - Write in plain, patient-friendly language.
 - Return valid JSON only, matching the schema. No markdown, no commentary."""
 

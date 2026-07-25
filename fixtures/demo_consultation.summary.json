@@ -5,59 +5,65 @@
     "source_fixture": "demo_consultation.json",
     "source_audio": "demo_consultation.m4a",
     "usage": {
-      "input_tokens": 1588,
-      "output_tokens": 5888
+      "input_tokens": 1793,
+      "output_tokens": 4764
     }
   },
   "summary": {
-    "patient_symptoms_summary": "You reported recent fatigue, \"a little bit of flap,\" and very dry skin. You had one side of your thyroid removed about one month ago for a tumor that you described as a \"good one\" but getting too big. You came today to review your blood test results and ask what to do.",
-    "doctor_diagnosis": "Your thyroid levels are low.",
-    "doctor_advice": "Start thyroid replacement medication at a very low dose. Take it on an empty stomach every day, ideally at the same time, best first thing in the morning with a glass of water (around 7:30–8:00 am). Watch for signs of too much thyroid: your heart beating very fast, feeling very anxious, feeling really bad or really stressed; if that happens, seek urgent help or go to the hospital. The doctor explained that thyroid hormones regulate metabolism and that too much can cause arrhythmia, a very fast heartbeat, and make you feel anxious or stressed. A follow-up review was suggested in three months to see how the medication has helped.",
+    "patient_symptoms_summary": "You reported recent fatigue, a little bit of “flap” (unclear in the recording — please confirm with your doctor), and very dry skin. You wondered if this is related to your recent surgery where one side of your thyroid was removed about a month ago. You came in to review your blood test results and ask what to do next.",
+    "doctor_diagnosis": "The doctor said your thyroid levels are low.",
+    "doctor_advice": "The doctor explained that thyroid hormones regulate metabolism (how you digest food and use energy). They recommended starting thyroid replacement medication at a very low dose to bring your levels back toward normal and help your symptoms. You should take the tablets on an empty stomach every day, ideally at the same time each day—best first thing in the morning with a glass of water. The doctor warned that taking too much can be dangerous and cause a very fast heartbeat (arrhythmia), feeling very anxious or really stressed. If that happens, you should seek urgent help or go to the hospital.",
     "red_flags": [
-      "Heart beating really fast while on the tablets",
-      "Feeling very anxious while on the tablets",
-      "Feeling really bad or really stressed while on the tablets"
+      "Heart beating really fast while on the tablets—seek urgent help/go to the hospital.",
+      "Feeling very anxious while on the tablets—seek urgent help.",
+      "The doctor said this could be a sign your thyroid levels are too high or that “some clots have formed in your body.”"
     ],
     "medications": [
       {
         "name": "thyroid replacement medication",
-        "dosage": "unclear — please confirm with your doctor",
-        "frequency": "every morning",
+        "dosage": "very low dose",
+        "frequency": "every day, ideally around the same time each day",
         "duration": "",
-        "instructions": "Take on an empty stomach every day at the same time, best first thing in the morning with a glass of water (around 7:30–8:00 am)."
+        "instructions": "Take on an empty stomach every day, ideally around the same time each day; best first thing in the morning with a glass of water."
       }
     ],
     "things_to_avoid": [],
     "lifestyle_advice": [],
     "commitments": [
       {
-        "text": "You will take your thyroid replacement medication every morning around 7:30–8:00 am on an empty stomach, ideally at the same time each day, with a glass of water.",
+        "text": "You will start thyroid replacement medication.",
+        "type": "medication",
+        "timeframe": "",
+        "source_quote": "the best treatment for this would be to start on thyroid replacement medication."
+      },
+      {
+        "text": "You will take the medication every morning around 7:30–8:00 am on an empty stomach.",
         "type": "medication",
         "timeframe": "every day",
-        "source_quote": "Another thing to look out for is that you need to take these medications on an empty stomach every day, ideally around the same time each day. So the best thing to do is to do it first thing in the morning with a glass of water."
+        "source_quote": "Every day at, like, seven-thirty, eight o'clock in the morning. Do you think you could do that?"
       },
       {
-        "text": "You will pick up the thyroid replacement medication prescription the doctor sends.",
+        "text": "You will pick up the prescription the doctor sends next time you are at the clinic.",
         "type": "medication",
         "timeframe": "next time you're here",
-        "source_quote": "I'll send the prescription for this, and then you can pick it up next time you're here."
+        "source_quote": "Okay, perfect. So I'll send the prescription for this, and then you can pick it up next time you're here."
       },
       {
-        "text": "You will seek urgent help if your heart is beating really fast or you feel very anxious while on the tablets.",
+        "text": "You will watch for a very fast heartbeat or feeling very anxious while on the tablets and seek urgent help if these happen.",
         "type": "watch_for",
-        "timeframe": "while on the tablets",
-        "source_quote": "if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently."
+        "timeframe": "",
+        "source_quote": "But again, if you feel like your heart is beating really fast or you're feeling very anxious while you're on these tablets, then do, do seek some help urgently."
       },
       {
-        "text": "You will have a review in 3 months to see how the medication has helped.",
+        "text": "You will have a follow-up in three months to see how the medication has helped.",
         "type": "followup",
-        "timeframe": "3 months",
-        "source_quote": "three months and then we can see how it's helped."
+        "timeframe": "three months",
+        "source_quote": "Um, three months and then we can see how it's helped."
       }
     ],
     "future_plan": {
       "follow_up_needed": true,
-      "date_or_timeframe": "3 months",
+      "date_or_timeframe": "three months",
       "purpose": "to see how the medication has helped"
     }
   }
