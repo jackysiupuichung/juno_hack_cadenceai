@@ -1,6 +1,6 @@
 # LOOP — Project Context for Claude Code
 
-> **Read this first. Single source of truth.** Companions: `SPEC.md` (technical), `PLAN.md` (36h build order), `PITCH.md` (the story), `SETUP.md` (repo init + commands).
+> **Read this first. Single source of truth.** Technical spec, build order, and setup commands are being rebuilt from concrete implementation rather than upfront planning.
 
 ---
 
