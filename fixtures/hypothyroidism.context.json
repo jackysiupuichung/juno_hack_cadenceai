@@ -1,0 +1,276 @@
+{
+  "$schema": "../schemas/disease_context.schema.json",
+  "condition": {
+    "id": "hypothyroidism",
+    "name": "Primary hypothyroidism",
+    "plain_name": "underactive thyroid",
+    "typical_treatment": "Levothyroxine tablets, taken long term, with the dose adjusted by blood test until it settles."
+  },
+  "sources": [
+    {
+      "id": "ng145",
+      "title": "Thyroid disease: assessment and management (NG145)",
+      "url": "https://www.nice.org.uk/guidance/ng145/chapter/recommendations",
+      "publisher": "NICE",
+      "retrieved": "2026-07-25"
+    },
+    {
+      "id": "nhs_hypo",
+      "title": "Underactive thyroid (hypothyroidism)",
+      "url": "https://www.nhs.uk/conditions/underactive-thyroid-hypothyroidism/",
+      "publisher": "NHS",
+      "retrieved": "2026-07-25"
+    },
+    {
+      "id": "statpearls_myx",
+      "title": "Myxedema Coma",
+      "url": "https://www.ncbi.nlm.nih.gov/books/NBK545193/",
+      "publisher": "StatPearls / NCBI Bookshelf",
+      "retrieved": "2026-07-25"
+    }
+  ],
+  "red_flags": [
+    {
+      "id": "cardiac_over_replacement",
+      "category": "emergency",
+      "urgency": "emergency",
+      "patient_facing": "If you get chest pain, feel faint or black out, become severely short of breath, or your heartbeat stays irregular, get emergency help straight away.",
+      "watch_for": [
+        "chest pain",
+        "fainting or blacking out",
+        "severe shortness of breath",
+        "a heartbeat that stays fast or irregular rather than settling"
+      ],
+      "action": "Call 999.",
+      "rationale": "Too much thyroid hormone can tip into atrial fibrillation or heart failure. A plausible interval event for someone titrating upward, and the one over-replacement presentation that cannot wait.",
+      "source_id": "nhs_hypo"
+    },
+    {
+      "id": "myxoedema_decompensation",
+      "category": "emergency",
+      "urgency": "emergency",
+      "patient_facing": "If you or someone with you becomes increasingly confused or very drowsy, or unusually cold to the touch, get emergency help.",
+      "watch_for": [
+        "increasing confusion",
+        "unusual drowsiness or difficulty staying awake",
+        "feeling very cold to the touch",
+        "a very slow heartbeat"
+      ],
+      "cluster_threshold": 2,
+      "action": "Call 999.",
+      "rationale": "Myxoedema coma — rare, roughly 30% mortality, mostly in older people. This patient is unlikely to be answering a check-in themselves, so the line is written to be actionable by whoever is with them.",
+      "source_id": "statpearls_myx"
+    },
+    {
+      "id": "over_replacement_cluster",
+      "category": "over_treatment",
+      "urgency": "same_day",
+      "patient_facing": "If you notice your heart racing, shaky hands, feeling hot or sweaty, trouble sleeping, or losing weight without trying, contact your GP — these can mean the dose needs looking at.",
+      "watch_for": [
+        "palpitations or a racing heart",
+        "tremor or shaky hands",
+        "feeling anxious or irritable",
+        "feeling hot when others do not, or sweating more",
+        "trouble sleeping",
+        "losing weight without trying",
+        "loose or more frequent bowel movements"
+      ],
+      "cluster_threshold": 2,
+      "action": "Contact your GP.",
+      "rationale": "The highest-value catch in this condition. These symptoms look nothing like the original complaint, so patients do not connect them to the tablet and will not volunteer them — they must be asked about directly. A cluster is a far stronger signal than palpitations alone.",
+      "source_id": "nhs_hypo"
+    },
+    {
+      "id": "no_improvement_by_expected_window",
+      "category": "under_treatment",
+      "urgency": "routine",
+      "patient_facing": "If you have been on treatment for six months and still feel no better, tell your doctor — it is worth reviewing.",
+      "watch_for": [
+        "tiredness unchanged or worse",
+        "still feeling cold more than usual",
+        "weight still climbing",
+        "constipation persisting",
+        "low mood persisting"
+      ],
+      "action": "Raise it at your next appointment, or book one if none is scheduled.",
+      "rationale": "Symptoms can take up to six months to settle when the starting TSH was very high or the condition was long-standing. Flagging earlier than that produces false alarms; this is the boundary where persistence becomes informative.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "pregnancy",
+      "category": "life_event",
+      "urgency": "same_day",
+      "patient_facing": "If you become pregnant or are planning to, tell your doctor as soon as possible — treatment for an underactive thyroid usually needs reviewing early in pregnancy.",
+      "watch_for": [
+        "pregnancy confirmed",
+        "trying to conceive or planning to"
+      ],
+      "action": "Contact your GP.",
+      "rationale": "Requirements rise early in pregnancy and untreated hypothyroidism carries risk of pre-eclampsia, premature birth and miscarriage. Time-critical, easily missed between appointments, and something a patient would not think to report to a thyroid check-in.",
+      "source_id": "nhs_hypo"
+    }
+  ],
+  "trajectory": [
+    {
+      "id": "early_symptom_change",
+      "marker": "first signs of improvement",
+      "earliest_week": 3,
+      "expected_by_week": 8,
+      "expectation": "Some easing of tiredness and feeling cold, though often only slight at this stage.",
+      "if_not_met": "No change in symptoms reported by week 8.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "full_symptom_resolution",
+      "marker": "symptoms settled",
+      "earliest_week": 8,
+      "expected_by_week": 26,
+      "expectation": "Symptoms largely settled once the dose is right. Can take the full six months if the starting level was very high or the condition long-standing.",
+      "if_not_met": "Still reporting original symptoms at six months.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "biochemical_stability",
+      "marker": "blood levels stable",
+      "earliest_week": 12,
+      "expected_by_week": 26,
+      "expectation": "Two thyroid blood tests in the normal range, three months apart.",
+      "if_not_met": "Blood levels not yet stable at six months.",
+      "source_id": "ng145"
+    }
+  ],
+  "monitoring": [
+    {
+      "id": "tft_after_start",
+      "event": "Repeat thyroid function blood test after starting levothyroxine",
+      "interval_weeks": 7,
+      "trigger": "treatment_start",
+      "overdue_after_weeks": 2,
+      "repeating": false,
+      "source_id": "ng145"
+    },
+    {
+      "id": "tft_after_dose_change",
+      "event": "Repeat thyroid function blood test after a dose change",
+      "interval_weeks": 7,
+      "trigger": "dose_change",
+      "overdue_after_weeks": 2,
+      "repeating": false,
+      "source_id": "ng145"
+    },
+    {
+      "id": "tft_until_stable",
+      "event": "Thyroid function blood test while the dose is still being settled",
+      "interval_weeks": 13,
+      "trigger": "last_result",
+      "overdue_after_weeks": 3,
+      "repeating": true,
+      "source_id": "ng145"
+    },
+    {
+      "id": "tft_annual",
+      "event": "Annual thyroid function blood test once stable",
+      "interval_weeks": 52,
+      "trigger": "stable",
+      "overdue_after_weeks": 6,
+      "repeating": true,
+      "source_id": "ng145"
+    }
+  ],
+  "check_in_probes": [
+    {
+      "id": "new_symptoms_open",
+      "question": "Since we last spoke, has anything new started — anything at all, even if it seems unrelated to your thyroid?",
+      "probes_for": "new_symptoms",
+      "links_to": ["over_replacement_cluster", "cardiac_over_replacement"],
+      "ask_from_week": 1,
+      "priority": 1
+    },
+    {
+      "id": "over_replacement_direct",
+      "question": "Have you noticed your heart racing, hands feeling shaky, or feeling hot or sweaty when other people don't?",
+      "probes_for": "new_symptoms",
+      "links_to": ["over_replacement_cluster"],
+      "ask_from_week": 2,
+      "priority": 1
+    },
+    {
+      "id": "blood_test_done",
+      "question": "Have you had your repeat blood test yet?",
+      "probes_for": "test_completion",
+      "links_to": ["tft_after_start", "tft_after_dose_change"],
+      "ask_from_week": 5,
+      "priority": 1
+    },
+    {
+      "id": "original_symptoms",
+      "question": "Thinking about the tiredness and feeling cold — better, worse, or about the same as when you saw the doctor?",
+      "probes_for": "original_symptoms",
+      "links_to": ["early_symptom_change", "full_symptom_resolution"],
+      "ask_from_week": 3,
+      "priority": 2
+    },
+    {
+      "id": "adherence",
+      "question": "How have you been getting on with taking the tablet each morning?",
+      "probes_for": "adherence",
+      "links_to": ["no_improvement_by_expected_window"],
+      "ask_from_week": 1,
+      "priority": 2
+    },
+    {
+      "id": "sleep_and_weight",
+      "question": "How has your sleep been, and has your weight changed either way?",
+      "probes_for": "new_symptoms",
+      "links_to": ["over_replacement_cluster"],
+      "ask_from_week": 4,
+      "priority": 3
+    },
+    {
+      "id": "pregnancy_check",
+      "question": "Has anything changed health-wise that your doctor should know about — including if you're pregnant or planning to be?",
+      "probes_for": "life_event",
+      "links_to": ["pregnancy"],
+      "ask_from_week": 2,
+      "priority": 3
+    }
+  ],
+  "referral_triggers": [
+    {
+      "id": "pregnancy_referral",
+      "circumstance": "Pregnancy, or planning pregnancy, while on levothyroxine.",
+      "note": "Dose usually needs reviewing early. Specialist input where control is difficult.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "symptoms_despite_normal_tsh",
+      "circumstance": "Symptoms persisting while blood levels are in the normal range.",
+      "note": "NG145 suggests measuring FT4 alongside TSH in this situation. A decision for the clinician, not for Cadence.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "discordant_tfts",
+      "circumstance": "Thyroid blood results that are difficult to interpret or do not fit together.",
+      "note": "Specialist advice suggested.",
+      "source_id": "ng145"
+    },
+    {
+      "id": "thyroid_swelling",
+      "circumstance": "Swelling or a lump in the neck.",
+      "note": "Assessed separately from thyroid function.",
+      "source_id": "ng145"
+    }
+  ],
+  "safety": {
+    "framing_rule": "Report observations against this context; never draw the clinical conclusion. \"Your doctor asked for repeat bloods around 12 August — that is now three weeks ago\" is a fact. \"Your dose is too high\" is a diagnosis. The check-in gathers, the brief reports, neither decides.",
+    "prohibited_outputs": [
+      "Suggesting a dose be increased, decreased, split, or stopped.",
+      "Naming a cause for a symptom, e.g. attributing palpitations to over-replacement.",
+      "Telling the patient their treatment is failing or not working.",
+      "Interpreting a blood result.",
+      "Recommending a test or referral the doctor did not raise.",
+      "Framing an expected-window shortfall as something being wrong."
+    ],
+    "licensing_note": "NICE content is restricted for reuse and requires a syndication licence for anything beyond demonstration. NHS Website content is available under its own terms via the NHS Content API. This file paraphrases intervals and thresholds rather than reproducing guideline text, and cites every claim."
+  }
+}

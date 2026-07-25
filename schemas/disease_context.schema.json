@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/disease_context.schema.json",
+  "title": "Disease context",
+  "description": "Static, hand-authored clinical reference for one condition. Unlike the other schemas in this directory it does not constrain an LLM response — it validates a curated file that is fed INTO the check-in and brief stages as grounding. It supplies the interval's expected shape: what the guideline says should happen by when, what would warrant seeking help sooner, and what to ask about in a voice check-in. It never contains advice addressed to the patient; the brief reports observations against it and draws no conclusion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "condition",
+    "sources",
+    "red_flags",
+    "trajectory",
+    "monitoring",
+    "check_in_probes",
+    "referral_triggers",
+    "safety"
+  ],
+  "properties": {
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "plain_name", "typical_treatment"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable slug used to match a visit summary to this file, e.g. \"hypothyroidism\".",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "name": { "type": "string", "description": "Clinical name." },
+        "plain_name": {
+          "type": "string",
+          "description": "What the patient would call it. Used in anything patient-facing."
+        },
+        "typical_treatment": {
+          "type": "string",
+          "description": "The usual first-line treatment, for context only. Never presented as a recommendation."
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "description": "Provenance for every clinical claim in this file. Required and non-empty: an unsourced disease context is not usable, and the citation is what lets the brief show its working.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "url", "publisher", "retrieved"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Short key referenced from source_id elsewhere in this file.",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "title": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "publisher": {
+            "type": "string",
+            "description": "e.g. \"NICE\", \"NHS\". Licensing differs per publisher; see safety.licensing_note."
+          },
+          "retrieved": {
+            "type": "string",
+            "format": "date",
+            "description": "When this was last checked against the source. Guidance changes; a stale context is a liability."
+          }
+        }
+      }
+    },
+    "red_flags": {
+      "type": "array",
+      "description": "Things that would warrant contact sooner than the scheduled follow-up. Phrased as observable patient experience, never as a diagnosis of what is causing it.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "category",
+          "urgency",
+          "patient_facing",
+          "watch_for",
+          "action",
+          "rationale",
+          "source_id"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "category": {
+            "type": "string",
+            "description": "Why this matters mechanistically. Drives grouping in the brief.",
+            "enum": [
+              "emergency",
+              "over_treatment",
+              "under_treatment",
+              "complication",
+              "life_event"
+            ]
+          },
+          "urgency": {
+            "type": "string",
+            "description": "How fast to act. \"emergency\" means call emergency services; \"same_day\" means contact a clinician today; \"routine\" means raise it at the next contact.",
+            "enum": ["emergency", "same_day", "soon", "routine"]
+          },
+          "patient_facing": {
+            "type": "string",
+            "description": "The plain-language line shown to the patient. Second person, no jargon."
+          },
+          "watch_for": {
+            "type": "array",
+            "description": "The observable signs. A cluster is usually a stronger signal than any single item — see cluster_threshold.",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "cluster_threshold": {
+            "type": "integer",
+            "description": "How many of watch_for should be present before this is worth surfacing. Omit when any single sign is sufficient.",
+            "minimum": 1
+          },
+          "action": {
+            "type": "string",
+            "description": "What the patient should do, stated as a route of contact only (\"call 999\", \"contact your GP today\") — never a treatment change."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why this matters clinically. For the team and the brief's audit trail, not shown to the patient."
+          },
+          "source_id": { "type": "string" }
+        }
+      }
+    },
+    "trajectory": {
+      "type": "array",
+      "description": "What the guideline says should have happened by when, measured from the index visit. This is what makes Cadence able to tell \"on track but not there yet\" apart from \"genuinely off track\" — the distinction a naive tracker gets wrong.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "marker",
+          "earliest_week",
+          "expected_by_week",
+          "expectation",
+          "if_not_met",
+          "source_id"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "marker": {
+            "type": "string",
+            "description": "What is being tracked, e.g. \"fatigue improving\"."
+          },
+          "earliest_week": {
+            "type": "number",
+            "description": "Weeks from the index visit before which absence of change is entirely expected. Below this, silence is not a signal and must not be flagged.",
+            "minimum": 0
+          },
+          "expected_by_week": {
+            "type": "number",
+            "description": "Weeks by which the marker would usually be met. Past this without it, the brief reports the discrepancy as an observation.",
+            "minimum": 0
+          },
+          "expectation": {
+            "type": "string",
+            "description": "What meeting this marker looks like, in plain language."
+          },
+          "if_not_met": {
+            "type": "string",
+            "description": "How the brief should REPORT the shortfall to the doctor — a factual observation, e.g. \"still reporting fatigue at week 12\". Not an instruction and not an inference about cause."
+          },
+          "source_id": { "type": "string" }
+        }
+      }
+    },
+    "monitoring": {
+      "type": "array",
+      "description": "Scheduled clinical events — the bloods and reviews that are the most common thing to silently not happen. Overdue arithmetic in the brief is driven from here.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "event",
+          "interval_weeks",
+          "trigger",
+          "overdue_after_weeks",
+          "source_id"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "event": {
+            "type": "string",
+            "description": "e.g. \"Repeat thyroid function blood test\"."
+          },
+          "interval_weeks": {
+            "type": "number",
+            "description": "Weeks from the trigger until the event is due.",
+            "minimum": 0
+          },
+          "trigger": {
+            "type": "string",
+            "description": "What starts the clock.",
+            "enum": ["treatment_start", "dose_change", "last_result", "stable"]
+          },
+          "overdue_after_weeks": {
+            "type": "number",
+            "description": "Weeks past due before the brief calls it overdue. A grace period, so ordinary scheduling slack is not reported as a failure.",
+            "minimum": 0
+          },
+          "repeating": {
+            "type": "boolean",
+            "description": "Whether this recurs at interval_weeks indefinitely. Defaults to false.",
+            "default": false
+          },
+          "source_id": { "type": "string" }
+        }
+      }
+    },
+    "check_in_probes": {
+      "type": "array",
+      "description": "The voice check-in question bank. Ordered by priority; a check-in is short and fatigue is a core symptom of the wedge population, so only the top few are asked on any one call.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "question", "probes_for", "ask_from_week", "priority"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "question": {
+            "type": "string",
+            "description": "Asked aloud by the voice agent. Short, conversational, answerable in one breath."
+          },
+          "probes_for": {
+            "type": "string",
+            "description": "What this is listening for. Open questions matter most for signs the patient would never volunteer because they do not connect them to the treatment.",
+            "enum": [
+              "new_symptoms",
+              "original_symptoms",
+              "adherence",
+              "test_completion",
+              "life_event"
+            ]
+          },
+          "links_to": {
+            "type": "array",
+            "description": "red_flags / trajectory / monitoring ids this question informs.",
+            "items": { "type": "string" }
+          },
+          "ask_from_week": {
+            "type": "number",
+            "description": "Weeks from the index visit before which this question is premature.",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "integer",
+            "description": "1 is highest. Governs which questions survive when a check-in must stay short.",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "referral_triggers": {
+      "type": "array",
+      "description": "Circumstances under which the guideline expects specialist input. Surfaced in the brief as something for the doctor to consider, never actioned by Cadence.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "circumstance", "note", "source_id"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "circumstance": { "type": "string" },
+          "note": { "type": "string" },
+          "source_id": { "type": "string" }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "description": "The boundary this file must not cross. Present in the data, not just the docs, so it travels with the context into every prompt that consumes it.",
+      "additionalProperties": false,
+      "required": ["framing_rule", "prohibited_outputs", "licensing_note"],
+      "properties": {
+        "framing_rule": {
+          "type": "string",
+          "description": "How consuming stages must present anything derived from this file."
+        },
+        "prohibited_outputs": {
+          "type": "array",
+          "description": "Phrasings that would cross from self-management into clinical decision support.",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "licensing_note": {
+          "type": "string",
+          "description": "Reuse constraints on the cited sources. Named honestly rather than hoped past."
+        }
+      }
+    }
+  }
+}

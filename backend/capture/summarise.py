@@ -53,6 +53,15 @@ Rules:
 - Do not add, infer, or invent any medical information.
 - Do not give advice of your own. You are recording what was said, nothing more.
 - If something was not mentioned in the transcript, return "" or [].
+- The transcript comes from speech recognition and may contain mis-heard
+  words. If a word looks garbled and you cannot tell what was meant, do not
+  repeat it as though it were a real symptom and do not substitute what you
+  think it should have been — that would be guessing at medical content.
+  Quote the word as heard and mark it, so the sentence still reads naturally
+  — e.g. a symptom the patient described with a word that came through as
+  "<word>" (unclear in the recording — please confirm with your doctor).
+  Quoting it lets the patient recognise what was mis-heard. Never silently
+  correct a garbled word into a different one.
 - Capture medication names, dosages, durations, and timings EXACTLY as the
   doctor states them. If a dosage is unclear or inaudible, write
   "unclear — please confirm with your doctor" rather than guessing.
@@ -61,6 +70,10 @@ Rules:
   later be answered "did this happen?". Examples: starting a medication,
   getting a test, watching for a symptom, booking a follow-up. Prose advice
   with no action is not a commitment.
+- source_quote must be one unbroken span copied verbatim from the transcript,
+  so it can be checked against the recording word for word. Do not join
+  separate remarks with "..." — if no single span covers the whole
+  commitment, quote the one that best anchors it.
 - Write in plain, patient-friendly language.
 - Return valid JSON only, matching the schema. No markdown, no commentary."""
 
