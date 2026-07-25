@@ -1470,3 +1470,407 @@ class PlannerInputTests(SimpleTestCase):
 
         lines = _follow_up_lines({"future_plan": {"follow_up_needed": False}})
         self.assertIn("do not invent one", lines)
+
+
+# --- Scored symptoms ------------------------------------------------------
+#
+# A number is only worth recording if it is comparable with the last one, which
+# makes almost everything here a test about identity and honesty rather than
+# about arithmetic: the same question every call, the same scale every tracker,
+# and a visible gap wherever a number was asked for and not given. The
+# arithmetic itself is subtraction, and the tests that matter are the ones
+# holding the line between subtraction and a conclusion.
+
+
+def _tracker(tracker_id="tiredness", **overrides):
+    from capture.trackers import Tracker
+
+    base = dict(
+        id=tracker_id,
+        label=tracker_id.replace("_", " ").capitalize(),
+        question=f"How {tracker_id} have you felt this week?",
+        context_id="original_symptoms",
+        from_consultation=True,
+    )
+    base.update(overrides)
+    return Tracker(**base)
+
+
+def _series(values, tracker=None, weeks=None):
+    """A series from a list of values; None entries are asked-but-unscored."""
+    from capture.trackers import Score, Series
+
+    tracker = tracker or _tracker()
+    weeks = weeks or list(range(1, len(values) + 1))
+    return Series(
+        tracker=tracker,
+        scores=[
+            Score(tracker_id=tracker.id, week=w, value=v, patient_words="")
+            for w, v in zip(weeks, values)
+        ],
+    )
+
+
+class ScaleIdentityTests(SimpleTestCase):
+    """The question and the scale must be identical every call, or the series lies."""
+
+    def test_the_anchors_are_appended_so_they_cannot_drift_between_trackers(self):
+        from capture.trackers import SCALE_ANCHOR
+
+        asked = _tracker().asked()
+        self.assertIn(SCALE_ANCHOR, asked)
+
+    def test_a_question_that_already_states_the_scale_is_left_alone(self):
+        """Otherwise the patient hears the anchors twice."""
+        t = _tracker(question="Rate your tiredness from 1 to 10.")
+        self.assertEqual(t.asked(), "Rate your tiredness from 1 to 10.")
+
+    def test_the_anchors_name_ten_as_the_worst_end(self):
+        """One direction system-wide: a reversed item is read backwards."""
+        from capture.trackers import SCALE_ANCHOR
+
+        self.assertIn("worst", SCALE_ANCHOR)
+
+
+class SeriesArithmeticTests(SimpleTestCase):
+    def test_delta_is_last_minus_first_and_positive_is_worse(self):
+        self.assertEqual(_series([3, 7]).delta, 4)
+        self.assertEqual(_series([7, 3]).delta, -4)
+
+    def test_one_point_is_a_baseline_not_a_trend(self):
+        self.assertIsNone(_series([5]).delta)
+        self.assertEqual(_series([5]).direction, "unknown")
+
+    def test_no_points_at_all_is_unknown_rather_than_steady(self):
+        """"We have no numbers" must never render as "nothing changed"."""
+        self.assertEqual(_series([]).direction, "unknown")
+
+    def test_a_movement_inside_the_noise_band_is_not_called_a_change(self):
+        from capture.trackers import MEANINGFUL_DELTA
+
+        self.assertEqual(_series([5, 5 + MEANINGFUL_DELTA - 1]).direction, "steady")
+        self.assertEqual(_series([5, 5 + MEANINGFUL_DELTA]).direction, "worse")
+
+    def test_direction_reads_the_scale_the_right_way_round(self):
+        self.assertEqual(_series([8, 2]).direction, "better")
+        self.assertEqual(_series([2, 8]).direction, "worse")
+
+    def test_the_sparkline_carries_the_week_of_every_point(self):
+        """The calls are not evenly spaced; position alone misleads."""
+        self.assertEqual(_series([6, 4, 3], weeks=[1, 3, 7]).sparkline(),
+                         "wk1 6 → wk3 4 → wk7 3")
+
+    def test_endpoints_are_the_first_and_last_scored_call_not_the_extremes(self):
+        """A dip in the middle is not the story; where it started and ended is."""
+        s = _series([6, 9, 4], weeks=[1, 3, 7])
+        self.assertEqual(s.first.value, 6)
+        self.assertEqual(s.last.value, 4)
+        self.assertEqual(s.delta, -2)
+
+
+class UnscoredAnswerTests(SimpleTestCase):
+    """"Asked and got no number" and "never asked" are different facts."""
+
+    def test_an_unscored_call_is_kept_as_a_visible_gap(self):
+        s = _series([6, None, 3], weeks=[1, 3, 7])
+        self.assertEqual([p.value for p in s.points], [6, 3])
+        self.assertEqual(s.unscored_weeks, [3])
+
+    def test_an_unscored_call_never_becomes_a_data_point(self):
+        """Carrying the last score forward would draw a line nobody reported."""
+        s = _series([6, None], weeks=[1, 3])
+        self.assertEqual(len(s.points), 1)
+        self.assertIsNone(s.delta)
+
+    def test_the_patients_words_survive_when_the_number_does_not(self):
+        from capture.trackers import Score, Series
+
+        s = Series(tracker=_tracker(), scores=[
+            Score(tracker_id="tiredness", week=3, value=None,
+                  patient_words="about the same, I suppose"),
+        ])
+        self.assertEqual(s.points, [])
+        self.assertIn("about the same", s.scores[0].patient_words)
+
+
+class SeriesCollectionTests(SimpleTestCase):
+    """Assembling the series from the interval's check-in records."""
+
+    def _check_in(self, week, scores):
+        return {"week": week, "symptom_scores": scores}
+
+    def test_scores_are_gathered_across_calls_into_one_series(self):
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [
+            self._check_in(1, [{"tracker_id": "tiredness", "value": 6}]),
+            self._check_in(7, [{"tracker_id": "tiredness", "value": 3}]),
+        ])
+        self.assertEqual(series[0].sparkline(), "wk1 6 → wk7 3")
+
+    def test_a_score_for_an_unplanned_tracker_is_discarded(self):
+        """A series nobody planned is not one the brief can read."""
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [
+            self._check_in(1, [{"tracker_id": "something_else", "value": 9}]),
+        ])
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].points, [])
+
+    def test_a_tracker_nobody_ever_scored_still_gets_an_empty_series(self):
+        """It has to appear in the brief as never rated, not vanish."""
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [self._check_in(1, [])])
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].points, [])
+
+    def test_records_assembled_out_of_order_still_sort_by_week(self):
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [
+            self._check_in(7, [{"tracker_id": "tiredness", "value": 3}]),
+            self._check_in(1, [{"tracker_id": "tiredness", "value": 6}]),
+        ])
+        self.assertEqual(series[0].sparkline(), "wk1 6 → wk7 3")
+
+    def test_a_null_value_is_collected_as_unscored_rather_than_dropped(self):
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [
+            self._check_in(3, [{"tracker_id": "tiredness", "value": None,
+                                "patient_words": "no idea"}]),
+        ])
+        self.assertEqual(series[0].unscored_weeks, [3])
+
+    def test_the_week_in_a_meta_sidecar_is_understood(self):
+        """run_check_in writes it there; the brief reads these files directly."""
+        from capture.trackers import collect
+
+        series = collect([_tracker()], [
+            {"_meta": {"week": 4}, "symptom_scores": [
+                {"tracker_id": "tiredness", "value": 5}]},
+        ])
+        self.assertEqual(series[0].points[0].week, 4)
+
+    def test_an_interval_with_no_trackers_collects_nothing(self):
+        from capture.trackers import collect
+
+        self.assertEqual(collect([], [self._check_in(1, [])]), [])
+
+
+class TrackerObservationTests(SimpleTestCase):
+    """Lines the brief reproduces verbatim — numbers and weeks, no verdict."""
+
+    def test_a_series_is_stated_with_its_points_and_its_endpoints(self):
+        from capture.trackers import observations
+
+        line = observations([_series([6, 3], weeks=[1, 7])])[0]
+        self.assertIn("wk1 6 → wk7 3", line)
+        self.assertIn("6 at week 1", line)
+        self.assertIn("3 at week 7", line)
+
+    def test_the_scale_direction_is_restated_so_it_cannot_be_read_backwards(self):
+        from capture.trackers import observations
+
+        self.assertIn("10 is worst", observations([_series([6, 3])])[0])
+
+    def test_a_single_rating_says_there_is_nothing_to_compare_it_with(self):
+        from capture.trackers import observations
+
+        line = observations([_series([6])])[0]
+        self.assertIn("Only one rating", line)
+
+    def test_a_never_rated_tracker_is_reported_rather_than_omitted(self):
+        from capture.trackers import observations
+
+        self.assertIn("never rated", observations([_series([])])[0])
+
+    def test_asked_but_never_answered_is_distinguished_from_never_asked(self):
+        from capture.trackers import observations
+
+        asked = observations([_series([None, None])])[0]
+        self.assertIn("no rating was given", asked)
+        self.assertNotIn("never rated", asked)
+
+    def test_unscored_weeks_inside_a_series_are_named(self):
+        from capture.trackers import observations
+
+        lines = observations([_series([6, None, 3], weeks=[1, 3, 7])])
+        self.assertTrue(any("week 3" in l and "no rating" in l for l in lines))
+
+    def test_no_observation_draws_a_conclusion_from_the_movement(self):
+        """The delta is subtraction; what it means is the doctor's.
+
+        A four-point rise is exactly the material a reader editorialises, so the
+        wording must offer nothing to build on — no "worsened", no "improved",
+        no "significant", and nothing about the treatment.
+        """
+        from capture.trackers import observations
+
+        joined = " ".join(observations([
+            _series([2, 9], weeks=[1, 7]),
+            _series([9, 2], weeks=[1, 7], tracker=_tracker("cold")),
+        ])).lower()
+        for word in ("worsen", "improv", "deteriorat", "significant", "concerning",
+                     "responding", "working", "suggests", "indicates"):
+            self.assertNotIn(word, joined)
+
+    def test_every_observation_passes_the_safety_filter(self):
+        from capture.trackers import observations
+
+        for series in (_series([2, 9], weeks=[1, 7]), _series([9, 2]),
+                       _series([5]), _series([]), _series([None])):
+            for line in observations([series]):
+                self.assertEqual(safety.check_utterance(line), [], line)
+
+
+class TrackerAgentBriefTests(SimpleTestCase):
+    """The one place the agent is told not to phrase things itself."""
+
+    def test_the_verbatim_instruction_travels_with_the_questions(self):
+        """Left in the standing prompt it loses to everything else about phrasing."""
+        from capture.trackers import as_agent_brief
+
+        rendered = as_agent_brief([_series([])], week=1)
+        self.assertIn("EXACTLY as written", rendered)
+
+    def test_the_question_is_rendered_with_its_anchors(self):
+        from capture.trackers import SCALE_ANCHOR, as_agent_brief
+
+        self.assertIn(SCALE_ANCHOR, as_agent_brief([_series([])], week=1))
+
+    def test_prior_scores_are_shown_to_the_agent_but_marked_not_to_read_back(self):
+        """An anchored patient repeats their last answer."""
+        from capture.trackers import as_agent_brief
+
+        rendered = as_agent_brief([_series([6], weeks=[1])], week=3)
+        self.assertIn("wk1 6", rendered)
+        self.assertIn("Do not read the earlier scores back", rendered)
+
+    def test_the_agent_is_told_to_record_a_null_rather_than_estimate(self):
+        from capture.trackers import as_agent_brief
+
+        rendered = as_agent_brief([_series([])], week=1)
+        self.assertIn("value null", rendered)
+        self.assertIn("made-up number is worse than a gap", rendered)
+
+    def test_an_interval_with_no_trackers_renders_to_nothing(self):
+        """An empty heading is something for an agent to ask about."""
+        from capture.trackers import as_agent_brief
+
+        self.assertEqual(as_agent_brief([], week=3), "")
+
+
+class TrackerChartDataTests(SimpleTestCase):
+    def test_the_scale_travels_with_the_data_so_a_chart_cannot_invert_it(self):
+        from capture.trackers import as_chart_data
+
+        row = as_chart_data([_series([6, 3], weeks=[1, 7])])[0]
+        self.assertEqual(row["scale"], {"min": 1, "max": 10, "high_is": "worst"})
+
+    def test_unscored_weeks_are_reported_separately_from_the_points(self):
+        from capture.trackers import as_chart_data
+
+        row = as_chart_data([_series([6, None, 3], weeks=[1, 3, 7])])[0]
+        self.assertEqual([p["week"] for p in row["points"]], [1, 7])
+        self.assertEqual(row["asked_but_unscored_weeks"], [3])
+
+    def test_no_interpretation_travels_with_the_chart_data(self):
+        from capture.trackers import as_chart_data
+
+        row = as_chart_data([_series([2, 9])])[0]
+        self.assertEqual(set(row) & {"severity", "assessment", "concern", "verdict"},
+                         set())
+
+
+class TrackerPlanTests(SimpleTestCase):
+    """The frozen set, as the planner writes it."""
+
+    PLAN = {
+        "tracked_symptoms": [
+            {"id": "tiredness", "label": "Tiredness",
+             "question": "How tired have you felt this week?",
+             "context_id": "original_symptoms", "from_consultation": True},
+        ]
+    }
+
+    def test_trackers_load_from_the_plan(self):
+        from capture.trackers import from_plan
+
+        t = from_plan(self.PLAN)[0]
+        self.assertEqual(t.id, "tiredness")
+        self.assertTrue(t.from_consultation)
+
+    def test_a_plan_with_no_tracked_symptoms_yields_none(self):
+        from capture.trackers import from_plan
+
+        self.assertEqual(from_plan({}), [])
+
+    def test_the_plan_object_exposes_what_it_froze(self):
+        from capture.plan import CheckInPlan
+
+        plan = CheckInPlan(data={**self.PLAN, "items": [], "call_schedule": [],
+                                 "interval_goal": "", "reasoning": ""})
+        self.assertEqual(len(plan.tracked_symptoms), 1)
+
+    def test_the_planner_is_told_to_keep_ten_as_the_bad_end(self):
+        """A reversed item is read backwards by everyone downstream."""
+        from capture.plan import SYSTEM_PROMPT
+
+        self.assertIn("10 is the bad end", SYSTEM_PROMPT)
+
+    def test_the_planner_is_told_the_wording_is_frozen(self):
+        from capture.plan import SYSTEM_PROMPT
+
+        self.assertIn("asked verbatim", SYSTEM_PROMPT)
+
+
+class ScoreCaptureTests(SimpleTestCase):
+    """What a call is allowed to record, and what it does with a revision."""
+
+    def test_the_turn_schema_constrains_a_rating_to_the_scale(self):
+        from capture.checkin import load_schema
+        from capture.trackers import SCALE_MAX, SCALE_MIN
+
+        value = (load_schema()["properties"]["symptom_scores"]["items"]
+                 ["properties"]["value"])
+        self.assertEqual(value["minimum"], SCALE_MIN)
+        self.assertEqual(value["maximum"], SCALE_MAX)
+
+    def test_the_schema_permits_a_null_for_an_unanswered_rating(self):
+        from capture.checkin import load_schema
+
+        value = (load_schema()["properties"]["symptom_scores"]["items"]
+                 ["properties"]["value"])
+        self.assertIn("null", value["type"])
+
+    def test_scores_are_kept_beside_the_schema_clean_record(self):
+        """check_in.schema.json has nowhere for them, as with mentions."""
+        from capture.checkin import CheckIn
+
+        record = CheckIn(
+            data={"outcomes": [], "unprompted_reports": [], "questions_for_doctor": []},
+            symptom_scores=[{"tracker_id": "tiredness", "value": 4, "week": 3}],
+        )
+        self.assertEqual(len(record.symptom_scores), 1)
+        self.assertNotIn("symptom_scores", record.data)
+
+    def test_the_scored_questions_reach_the_agents_prompt(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None,
+            [_series([6], weeks=[1])],
+        )
+        self.assertIn("=== THE SCORED QUESTIONS ===", prompt)
+        self.assertIn("EXACTLY as written", prompt)
+
+    def test_an_interval_with_no_trackers_gets_no_scored_section(self):
+        from capture.checkin import _build_system_prompt
+
+        prompt = _build_system_prompt(
+            _facts(today=date(2026, 7, 20)), load_context(), None, None, None, []
+        )
+        self.assertNotIn("=== THE SCORED QUESTIONS ===", prompt)
