@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/visit_summary.schema.json",
+  "title": "Visit summary + commitment extraction",
+  "description": "Output of /api/summarise. Organises a consultation transcript into a patient-facing summary and extracts the trackable commitments that open the interval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "patient_symptoms_summary",
+    "doctor_diagnosis",
+    "doctor_advice",
+    "red_flags",
+    "medications",
+    "things_to_avoid",
+    "lifestyle_advice",
+    "commitments",
+    "future_plan"
+  ],
+  "properties": {
+    "patient_symptoms_summary": {
+      "type": "string",
+      "description": "What the patient described, in plain language. \"\" if not discussed."
+    },
+    "doctor_diagnosis": {
+      "type": "string",
+      "description": "The diagnosis as the doctor stated it. \"\" if none given."
+    },
+    "doctor_advice": {
+      "type": "string",
+      "description": "Advice as stated by the doctor. Never the model's own advice."
+    },
+    "red_flags": {
+      "type": "array",
+      "description": "Reasons the doctor said to come back or seek urgent care.",
+      "items": { "type": "string" }
+    },
+    "medications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "dosage", "frequency", "duration", "instructions"],
+        "properties": {
+          "name": { "type": "string" },
+          "dosage": {
+            "type": "string",
+            "description": "Exactly as stated. If unclear or inaudible, use \"unclear — please confirm with your doctor\"."
+          },
+          "frequency": { "type": "string" },
+          "duration": { "type": "string" },
+          "instructions": { "type": "string" }
+        }
+      }
+    },
+    "things_to_avoid": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "lifestyle_advice": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "commitments": {
+      "type": "array",
+      "description": "Concrete, trackable things agreed to happen before the next visit. Prose advice with no action is not a commitment.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "type", "timeframe", "source_quote"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "What was agreed, addressed to the patient in the second person."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["medication", "test", "watch_for", "followup", "lifestyle"]
+          },
+          "timeframe": {
+            "type": "string",
+            "description": "As stated, e.g. \"6 weeks\", \"before next visit\". \"\" if unstated."
+          },
+          "source_quote": {
+            "type": "string",
+            "description": "The transcript line this was drawn from. The audit trail proving the loop is made of real data."
+          }
+        }
+      }
+    },
+    "future_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["follow_up_needed", "date_or_timeframe", "purpose"],
+      "properties": {
+        "follow_up_needed": { "type": "boolean" },
+        "date_or_timeframe": { "type": "string" },
+        "purpose": { "type": "string" }
+      }
+    }
+  }
+}

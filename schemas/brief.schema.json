@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cadence/brief.schema.json",
+  "title": "Next-visit brief",
+  "description": "Output of /api/brief. The hero artifact: an account of the interval a visit opened, prepared by the patient and handed to the doctor at the next visit.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agreed", "did", "happened", "changed", "open_questions", "gaps"],
+  "properties": {
+    "agreed": {
+      "type": "array",
+      "description": "Each commitment as stated at the last visit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commitment_id", "text"],
+        "properties": {
+          "commitment_id": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "did": {
+      "type": "array",
+      "description": "What the patient actually did per commitment. Not-done is stated plainly, never softened — that is the useful signal for the doctor.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commitment_id", "text", "status"],
+        "properties": {
+          "commitment_id": { "type": "string" },
+          "text": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["done", "not_done", "partial", "changed", "unknown"]
+          }
+        }
+      }
+    },
+    "happened": {
+      "type": "array",
+      "description": "Symptoms, side effects, and events across the interval, with rough timing where the check-in dates support it.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "approx_timing"],
+        "properties": {
+          "text": { "type": "string" },
+          "approx_timing": {
+            "type": "string",
+            "description": "e.g. \"around week two\". \"\" if the record does not support a timing."
+          }
+        }
+      }
+    },
+    "changed": {
+      "type": "array",
+      "description": "The delta since the visit.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "direction"],
+        "properties": {
+          "text": { "type": "string" },
+          "direction": {
+            "type": "string",
+            "enum": ["better", "worse", "unchanged", "unclear"]
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "What the patient wants to ask.",
+      "items": { "type": "string" }
+    },
+    "gaps": {
+      "type": "array",
+      "description": "What the record does not cover. Populated rather than padded — an empty interval is honest output.",
+      "items": { "type": "string" }
+    }
+  }
+}
