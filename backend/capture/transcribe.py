@@ -15,6 +15,8 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from .roles import UNKNOWN, RoleAssignment, infer_roles
+
 load_dotenv()
 
 MODEL_ID = "scribe_v1"
@@ -64,10 +66,41 @@ class Transcript:
     text: str
     utterances: list[Utterance]
     language_code: str | None
+    roles: RoleAssignment | None = None
 
-    def as_dialogue(self) -> str:
-        """Render as `SPEAKER: text` lines, which is what the LLM stages read."""
-        return "\n".join(f"{u.speaker}: {u.text}" for u in self.utterances)
+    def role_for(self, speaker: str) -> str:
+        """The inferred role of a speaker label, or the label itself."""
+        if self.roles is None:
+            return speaker
+        role = self.roles.role_for(speaker)
+        return speaker if role == UNKNOWN else role
+
+    def as_dialogue(self, *, use_roles: bool = True) -> str:
+        """Render as `SPEAKER: text` lines, which is what the LLM stages read.
+
+        Labels each line DOCTOR/PATIENT where roles were inferred, since the
+        downstream summary depends on who said what. Falls back to the raw
+        diarization label when a role could not be determined.
+        """
+        return "\n".join(
+            f"{self.role_for(u.speaker) if use_roles else u.speaker}: {u.text}"
+            for u in self.utterances
+        )
+
+    @property
+    def speakers(self) -> list[str]:
+        """Distinct speaker labels, in first-heard order."""
+        seen: list[str] = []
+        for utterance in self.utterances:
+            if utterance.speaker not in seen:
+                seen.append(utterance.speaker)
+        return seen
+
+    @property
+    def duration(self) -> float | None:
+        """Length of the conversation in seconds, if timestamps are present."""
+        ends = [u.end for u in self.utterances if u.end is not None]
+        return max(ends) if ends else None
 
 
 def _api_key() -> str:
@@ -175,10 +208,13 @@ def transcribe_audio(
     response.raise_for_status()
     result = response.json()
 
+    utterances = _group_into_utterances(_field(result, "words"))
+
     return Transcript(
         text=_field(result, "text", "") or "",
-        utterances=_group_into_utterances(_field(result, "words")),
+        utterances=utterances,
         language_code=_field(result, "language_code"),
+        roles=infer_roles(utterances),
     )
 
 
@@ -206,6 +242,11 @@ def main() -> None:
     parser.add_argument(
         "--language", default="eng", help="ISO language code, or 'auto' to detect"
     )
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="keep diarization labels instead of DOCTOR/PATIENT roles",
+    )
     args = parser.parse_args()
 
     transcript = transcribe_file(
@@ -214,7 +255,12 @@ def main() -> None:
         language_code=None if args.language == "auto" else args.language,
     )
 
-    print(transcript.as_dialogue() or transcript.text)
+    if transcript.roles is not None:
+        print(
+            f"# speakers: {len(transcript.speakers)} "
+            f"| roles: {transcript.roles.confidence} confidence",
+        )
+    print(transcript.as_dialogue(use_roles=not args.raw) or transcript.text)
 
 
 if __name__ == "__main__":
