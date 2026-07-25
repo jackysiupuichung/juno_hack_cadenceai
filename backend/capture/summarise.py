@@ -18,11 +18,20 @@ from functools import lru_cache
 from pathlib import Path
 
 import anthropic
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
 
 MODEL = "claude-opus-5"
+
+# Which backend answers the summarise call. "anthropic" is the default so an
+# unset env behaves exactly as it always has; "codex" routes to an
+# OpenAI-compatible endpoint using CODEX_* instead of ANTHROPIC_API_KEY.
+PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
+
+CODEX_MODEL = os.environ.get("CODEX_MODEL", "gpt-5-codex")
+CODEX_BASE_URL = os.environ.get("CODEX_BASE_URL", "https://api.openai.com/v1")
 
 # Room for the summary plus adaptive thinking on a long consultation.
 MAX_TOKENS = 16000
@@ -97,6 +106,84 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
+def _codex_client() -> openai.OpenAI:
+    if not os.environ.get("CODEX_API_KEY"):
+        raise SummariseError(
+            "CODEX_API_KEY is not set. Copy .env.example to .env and fill it in."
+        )
+    return openai.OpenAI(
+        api_key=os.environ["CODEX_API_KEY"],
+        base_url=CODEX_BASE_URL,
+    )
+
+
+def _summarise_via_codex(dialogue: str, schema: dict) -> Summary:
+    """Summarise through an OpenAI-compatible endpoint.
+
+    Mirrors the Anthropic path's contract — same system prompt, same schema,
+    same Summary — but expressed in the Chat Completions shape. The schema is
+    sent as a strict json_schema response format, which is that API's
+    equivalent of the output_config used on the Anthropic side.
+    """
+    body = {k: v for k, v in schema.items() if not k.startswith("$")}
+
+    try:
+        response = _codex_client().chat.completions.create(
+            model=CODEX_MODEL,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "visit_summary",
+                    "schema": body,
+                    "strict": False,
+                },
+            },
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        "Here is the consultation transcript:\n\n"
+                        f"{dialogue}\n\n"
+                        "Organise it into the required JSON structure."
+                    ),
+                },
+            ],
+        )
+    except openai.APIStatusError as exc:
+        raise SummariseError(f"Codex returned {exc.status_code}: {exc.message}") from exc
+    except openai.APIConnectionError as exc:
+        raise SummariseError(f"Could not reach Codex: {exc}") from exc
+
+    choice = response.choices[0]
+    if choice.finish_reason == "content_filter":
+        raise SummariseError("Codex declined to summarise this transcript.")
+
+    text = choice.message.content or ""
+    if not text.strip():
+        if choice.finish_reason == "length":
+            raise SummariseError(
+                "Codex hit the token limit before returning a summary; "
+                "the transcript may be too long."
+            )
+        raise SummariseError(f"Codex returned no summary (stop: {choice.finish_reason})")
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SummariseError(f"Summary was not valid JSON: {exc}. Raw: {text[:500]}") from exc
+
+    usage = response.usage
+    return Summary(
+        data=_check_shape(data),
+        raw=text,
+        usage={
+            "input_tokens": usage.prompt_tokens if usage else 0,
+            "output_tokens": usage.completion_tokens if usage else 0,
+        },
+    )
+
+
 def _check_shape(data: object) -> dict:
     """Verify the response has the keys downstream stages read.
 
@@ -141,6 +228,9 @@ def summarise_transcript(dialogue: str) -> Summary:
         raise SummariseError("Cannot summarise an empty transcript.")
 
     schema = load_schema()
+
+    if PROVIDER == "codex":
+        return _summarise_via_codex(dialogue, schema)
 
     try:
         response = _client().messages.create(
