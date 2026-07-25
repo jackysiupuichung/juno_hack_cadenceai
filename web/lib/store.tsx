@@ -296,6 +296,39 @@ function byNewest(a: Appointment, b: Appointment) {
   return a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt.localeCompare(a.createdAt)
 }
 
+/**
+ * An appointment that hasn't happened yet — a date in the diary rather than a
+ * consultation on the record.
+ *
+ * It has no transcript and no summary because there is nothing to transcribe
+ * until it takes place, which is what distinguishes it: a consultation
+ * recorded this morning is already in the past, so a date test alone would
+ * misjudge it. The date is checked too, so a visit that happened but was never
+ * recorded still reads as past rather than being labelled "upcoming" forever.
+ */
+export function isUpcoming(appointment: Appointment): boolean {
+  if (appointment.summary || appointment.transcript) return false
+  return appointment.date >= new Date().toISOString().slice(0, 10)
+}
+
+/** Whole days from today until an upcoming appointment. Negative once past. */
+export function daysUntil(iso: string): number {
+  const then = new Date(`${iso.slice(0, 10)}T00:00:00`)
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return Math.round((then.getTime() - now.getTime()) / 86_400_000)
+}
+
+/** "Today" / "Tomorrow" / "In 4 days" — how far off the appointment is. */
+export function untilLabel(iso: string): string {
+  const days = daysUntil(iso)
+  if (days <= 0) return "Today"
+  if (days === 1) return "Tomorrow"
+  if (days < 7) return `In ${days} days`
+  if (days < 14) return "Next week"
+  return `In ${Math.round(days / 7)} weeks`
+}
+
 export function appointmentsForCondition(data: AppData, conditionId: string) {
   return data.appointments.filter((a) => a.conditionId === conditionId).sort(byNewest)
 }
