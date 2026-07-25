@@ -1,7 +1,7 @@
-import { useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { api, type Visit } from '../api'
-import Disclaimer from '../components/Disclaimer'
+import VisitSummaryCards from '../components/VisitSummaryCards'
 
 const CARE_SETTINGS = [
   { value: 'gp', label: 'GP' },
@@ -13,10 +13,12 @@ const CARE_SETTINGS = [
 type Stage = 'form' | 'recording' | 'review' | 'paste' | 'processing' | 'summary'
 
 export default function NewVisit() {
+  const { conditionId } = useParams<{ conditionId: string }>()
   const [stage, setStage] = useState<Stage>('form')
   const [careSetting, setCareSetting] = useState('gp')
   const [clinicianName, setClinicianName] = useState('')
   const [organisation, setOrganisation] = useState('')
+  const [organisationAddress, setOrganisationAddress] = useState('')
   const [consent, setConsent] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
@@ -74,21 +76,24 @@ export default function NewVisit() {
   }
 
   async function runSummarise(text: string) {
+    if (!conditionId) return
     setProcessingLabel('Organising your summary…')
     const created = await api.summarise({
+      condition_id: conditionId,
       transcript: text,
       date: today,
       care_setting: careSetting,
       clinician_name: clinicianName,
       organisation,
+      organisation_address: organisationAddress,
     })
     setProcessingLabel('Finding what you agreed…')
     setVisit(created)
     setStage('summary')
   }
 
-  if (stage === 'summary' && visit) {
-    return <VisitSummaryView visit={visit} />
+  if (stage === 'summary' && visit && conditionId) {
+    return <VisitSummaryView visit={visit} conditionId={conditionId} />
   }
 
   if (stage === 'processing') {
@@ -102,8 +107,8 @@ export default function NewVisit() {
 
   return (
     <div className="min-h-svh bg-white px-5 pb-10 pt-8">
-      <Link to="/" className="text-sm text-slate-400">
-        ← Home
+      <Link to={`/conditions/${conditionId}`} className="text-sm text-slate-400">
+        ← Back
       </Link>
       <h1 className="mt-2 mb-6 text-xl font-semibold text-slate-900">Record a visit</h1>
 
@@ -135,10 +140,19 @@ export default function NewVisit() {
         </label>
 
         <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">Organisation (optional)</span>
+          <span className="mb-1 block font-medium text-slate-700">Clinic / organisation (optional)</span>
           <input
             value={organisation}
             onChange={(e) => setOrganisation(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 p-2.5"
+          />
+        </label>
+
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-slate-700">Address (optional)</span>
+          <input
+            value={organisationAddress}
+            onChange={(e) => setOrganisationAddress(e.target.value)}
             className="w-full rounded-lg border border-slate-200 p-2.5"
           />
         </label>
@@ -223,102 +237,22 @@ export default function NewVisit() {
   )
 }
 
-function VisitSummaryView({ visit }: { visit: Visit }) {
-  const s = visit.summary
+function VisitSummaryView({ visit, conditionId }: { visit: Visit; conditionId: string }) {
   return (
     <div className="min-h-svh bg-white px-5 pb-10 pt-8">
-      <Link to="/" className="text-sm text-slate-400">
-        ← Home
+      <Link to={`/conditions/${conditionId}`} className="text-sm text-slate-400">
+        ← Back
       </Link>
       <h1 className="mt-2 mb-6 text-xl font-semibold text-slate-900">Visit summary</h1>
 
-      <SummaryCard title="Your symptoms">{s.patient_symptoms_summary || '—'}</SummaryCard>
-      <SummaryCard title="Doctor's diagnosis">{s.doctor_diagnosis || '—'}</SummaryCard>
-      <SummaryCard title="Doctor's advice">{s.doctor_advice || '—'}</SummaryCard>
-
-      {s.red_flags.length > 0 && (
-        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <h2 className="mb-2 text-sm font-semibold text-amber-800">⚠️ When to go back</h2>
-          <ul className="list-disc space-y-1 pl-4 text-sm text-amber-800">
-            {s.red_flags.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {s.medications.length > 0 && (
-        <div className="mb-4">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Medications</h2>
-          <div className="space-y-2">
-            {s.medications.map((m, i) => (
-              <div key={i} className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm">
-                <p className="font-medium text-slate-800">{m.name}</p>
-                <p className="text-slate-500">
-                  {[m.dosage, m.frequency, m.duration].filter(Boolean).join(' · ')}
-                </p>
-                {m.instructions && <p className="mt-1 text-slate-600">{m.instructions}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {s.things_to_avoid.length > 0 && (
-        <SummaryCard title="What to avoid">
-          <ul className="list-disc space-y-1 pl-4">
-            {s.things_to_avoid.map((t, i) => (
-              <li key={i}>{t}</li>
-            ))}
-          </ul>
-        </SummaryCard>
-      )}
-
-      {s.lifestyle_advice.length > 0 && (
-        <SummaryCard title="Lifestyle advice">
-          <ul className="list-disc space-y-1 pl-4">
-            {s.lifestyle_advice.map((t, i) => (
-              <li key={i}>{t}</li>
-            ))}
-          </ul>
-        </SummaryCard>
-      )}
-
-      {visit.commitments.length > 0 && (
-        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <h2 className="mb-2 text-sm font-semibold text-emerald-800">What you agreed</h2>
-          <ul className="space-y-1 text-sm text-emerald-800">
-            {visit.commitments.map((c) => (
-              <li key={c.id}>
-                • {c.text} {c.timeframe && <span className="text-emerald-600">({c.timeframe})</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <details className="mb-4 rounded-xl border border-slate-100 p-3 text-sm">
-        <summary className="cursor-pointer font-medium text-slate-600">View full transcript</summary>
-        <p className="mt-2 whitespace-pre-wrap text-slate-500">{visit.transcript}</p>
-      </details>
-
-      <Disclaimer />
+      <VisitSummaryCards visit={visit} />
 
       <Link
-        to="/"
+        to={`/conditions/${conditionId}`}
         className="mt-6 block rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white"
       >
-        Back to home
+        Back to condition
       </Link>
-    </div>
-  )
-}
-
-function SummaryCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="mb-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-700">{title}</h2>
-      <div className="text-sm text-slate-600">{children}</div>
     </div>
   )
 }

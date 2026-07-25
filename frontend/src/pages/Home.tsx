@@ -1,113 +1,150 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Timeline } from '../api'
-import { STATUS_CLASS, STATUS_LABEL, TYPE_ICON } from '../commitmentDisplay'
-
-const EVENT_LABEL = { visit: 'Visit', check_in: 'Check-in', brief: 'Next-visit brief' } as const
-const EVENT_ACCENT = {
-  visit: 'border-l-slate-300',
-  check_in: 'border-l-sky-300',
-  brief: 'border-l-violet-400',
-} as const
+import { api, type Condition } from '../api'
+import { getProfile } from '../localGate'
 
 export default function Home() {
-  const [timeline, setTimeline] = useState<Timeline | null>(null)
+  const [conditions, setConditions] = useState<Condition[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [showCompleted, setShowCompleted] = useState(false)
 
-  useEffect(() => {
-    api.timeline().then(setTimeline).catch((e) => setError(String(e)))
-  }, [])
+  const profile = getProfile()
+
+  function refresh() {
+    api.listConditions().then(setConditions).catch((e) => setError(String(e)))
+  }
+
+  useEffect(refresh, [])
+
+  async function createCondition() {
+    if (!newName.trim()) return
+    await api.createCondition(newName.trim())
+    setNewName('')
+    setShowNewForm(false)
+    refresh()
+  }
+
+  const active = conditions?.filter((c) => c.status === 'active') ?? []
+  const completed = conditions?.filter((c) => c.status === 'completed') ?? []
 
   return (
-    <div className="min-h-svh bg-white">
-      <header className="px-5 pt-8 pb-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Cadence</p>
-        <h1 className="text-xl font-semibold text-slate-900">
-          {timeline?.condition.name ?? 'Your care record'}
-        </h1>
-      </header>
-
-      {error && <p className="mx-5 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
-
-      <section className="mx-5 mb-6 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Open commitments</h2>
-        {!timeline ? (
-          <p className="text-sm text-slate-400">Loading…</p>
-        ) : timeline.open_commitments.length === 0 ? (
-          <p className="text-sm text-slate-400">Nothing open right now.</p>
-        ) : (
-          <ul className="space-y-2">
-            {timeline.open_commitments.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-start gap-2 rounded-xl border border-slate-100 bg-white p-3 text-sm"
-              >
-                <span>{TYPE_ICON[c.type]}</span>
-                <span className="flex-1 text-slate-700">{c.text}</span>
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[c.status]}`}
-                >
-                  {STATUS_LABEL[c.status]}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <div className="mx-5 mb-6 flex gap-3">
-        <Link
-          to="/visit/new"
-          className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-sm"
-        >
-          + Record a visit
-        </Link>
-        <Link
-          to="/brief"
-          aria-disabled={!timeline?.has_visits}
-          className={`flex-1 rounded-xl px-4 py-3 text-center text-sm font-semibold shadow-sm ${
-            timeline?.has_visits
-              ? 'bg-slate-900 text-white'
-              : 'pointer-events-none bg-slate-100 text-slate-400'
-          }`}
-        >
-          Generate brief
+    <div className="min-h-svh bg-white px-5 pb-10 pt-8">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            {profile ? profile.name : 'Cadence'}
+          </p>
+          <h1 className="text-xl font-semibold text-slate-900">My Conditions</h1>
+        </div>
+        <Link to="/settings" className="text-sm text-slate-400">
+          Settings
         </Link>
       </div>
 
-      {timeline?.open_commitments.length ? (
-        <div className="mx-5 mb-6">
-          <Link
-            to="/checkin"
-            className="block rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-center text-sm font-semibold text-sky-700"
-          >
-            Check in now
-          </Link>
-        </div>
-      ) : null}
+      {error && <p className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
 
-      <section className="mx-5 pb-10">
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Timeline</h2>
-        {timeline?.events.length === 0 && <p className="text-sm text-slate-400">Nothing yet.</p>}
-        <ul className="space-y-2">
-          {timeline?.events.map((e) => (
-            <li
-              key={`${e.kind}-${e.id}`}
-              className={`rounded-lg border-l-4 bg-slate-50 p-3 text-sm ${EVENT_ACCENT[e.kind]}`}
-            >
-              <div className="flex justify-between text-xs text-slate-400">
-                <span>{EVENT_LABEL[e.kind]}</span>
-                <span>{e.date}</span>
+      {!conditions ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : (
+        <>
+          {active.length === 0 && !showNewForm && (
+            <p className="mb-4 text-sm text-slate-400">No conditions yet — add your first one below.</p>
+          )}
+
+          <div className="space-y-3">
+            {active.map((c) => (
+              <ConditionCard key={c.id} condition={c} />
+            ))}
+          </div>
+
+          {showNewForm ? (
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <input
+                autoFocus
+                placeholder="e.g. Kidney Failure"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-slate-200 p-2.5 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={createCondition}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => setShowNewForm(false)}
+                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-500"
+                >
+                  Cancel
+                </button>
               </div>
-              <p className="mt-1 text-slate-700">
-                {e.kind === 'visit' && (e.diagnosis_preview || e.care_setting)}
-                {e.kind === 'check_in' && (e.preview || 'Checked in')}
-                {e.kind === 'brief' && 'Next-visit brief'}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </section>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="mt-4 w-full rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 text-sm font-semibold text-slate-500"
+            >
+              + New condition
+            </button>
+          )}
+
+          {completed.length > 0 && (
+            <div className="mt-8">
+              <button
+                onClick={() => setShowCompleted((v) => !v)}
+                className="mb-3 text-sm font-semibold text-slate-400"
+              >
+                {showCompleted ? '▾' : '▸'} Completed ({completed.length})
+              </button>
+              {showCompleted && (
+                <div className="space-y-3">
+                  {completed.map((c) => (
+                    <ConditionCard key={c.id} condition={c} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
+  )
+}
+
+function ConditionCard({ condition }: { condition: Condition }) {
+  return (
+    <Link
+      to={`/conditions/${condition.id}`}
+      className={`block rounded-2xl border p-4 ${
+        condition.status === 'completed'
+          ? 'border-slate-100 bg-slate-50 opacity-70'
+          : 'border-slate-100 bg-slate-50'
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <p className="font-medium text-slate-800">{condition.name}</p>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+            condition.status === 'completed'
+              ? 'bg-slate-200 text-slate-500'
+              : 'bg-emerald-100 text-emerald-700'
+          }`}
+        >
+          {condition.status === 'completed' ? 'Completed' : 'Active'}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-slate-400">
+        {condition.appointment_count} appointment{condition.appointment_count === 1 ? '' : 's'}
+      </p>
+      {condition.reminder && (
+        <p className="mt-2 rounded-lg bg-sky-50 px-2 py-1 text-xs text-sky-700">
+          Upcoming: {condition.reminder.purpose || 'follow-up'} — {condition.reminder.date_or_timeframe}
+        </p>
+      )}
+    </Link>
   )
 }

@@ -3,10 +3,15 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    path("patient", views.patient, name="patient"),
+    path("conditions", views.conditions, name="conditions"),
+    path("conditions/<uuid:condition_id>", views.condition_detail, name="condition-detail"),
+    path("visits/<uuid:visit_id>", views.visit_detail, name="visit-detail"),
     path("timeline", views.timeline, name="timeline"),
     path("summarise", views.summarise, name="summarise"),
     path("checkin/context", views.checkin_context, name="checkin-context"),
     path("checkin", views.checkin, name="checkin"),
     path("brief", views.brief, name="brief"),
+    path("ask", views.ask, name="ask"),
     path("reset", views.reset, name="reset"),
 ]

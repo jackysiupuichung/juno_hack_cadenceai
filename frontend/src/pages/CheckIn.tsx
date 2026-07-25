@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api, type Commitment } from '../api'
 
 type OutcomeStatus = 'done' | 'not_done' | 'partial' | 'changed' | 'unknown'
@@ -12,6 +12,7 @@ const STATUS_OPTIONS: { value: OutcomeStatus; label: string }[] = [
 ]
 
 export default function CheckIn() {
+  const { conditionId } = useParams<{ conditionId: string }>()
   const [commitments, setCommitments] = useState<Commitment[] | null>(null)
   const [answers, setAnswers] = useState<Record<string, { status: OutcomeStatus; note: string }>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -19,11 +20,12 @@ export default function CheckIn() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!conditionId) return
     api
-      .timeline()
+      .timeline(conditionId)
       .then((t) => setCommitments(t.open_commitments))
       .catch((e) => setError(String(e)))
-  }, [])
+  }, [conditionId])
 
   function setStatus(id: string, status: OutcomeStatus) {
     setAnswers((prev) => ({ ...prev, [id]: { status, note: prev[id]?.note ?? '' } }))
@@ -34,6 +36,7 @@ export default function CheckIn() {
   }
 
   async function submit() {
+    if (!conditionId) return
     setSubmitting(true)
     setError(null)
     try {
@@ -42,7 +45,7 @@ export default function CheckIn() {
         status: a.status,
         note: a.note,
       }))
-      await api.checkin({ outcomes })
+      await api.checkin({ condition_id: conditionId, outcomes })
       setDone(true)
     } catch (e) {
       setError(String(e))
@@ -55,8 +58,11 @@ export default function CheckIn() {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-white px-6 text-center">
         <p className="text-lg font-semibold text-slate-900">Thanks — check-in saved.</p>
-        <Link to="/" className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white">
-          Back to home
+        <Link
+          to={`/conditions/${conditionId}`}
+          className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+        >
+          Back to condition
         </Link>
       </div>
     )
@@ -64,8 +70,8 @@ export default function CheckIn() {
 
   return (
     <div className="min-h-svh bg-white px-5 pb-10 pt-8">
-      <Link to="/" className="text-sm text-slate-400">
-        ← Home
+      <Link to={`/conditions/${conditionId}`} className="text-sm text-slate-400">
+        ← Back
       </Link>
       <h1 className="mt-2 mb-1 text-xl font-semibold text-slate-900">Check in</h1>
       <p className="mb-6 text-sm text-slate-500">How did things go with what you agreed?</p>

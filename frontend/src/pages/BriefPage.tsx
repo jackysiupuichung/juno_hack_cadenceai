@@ -1,21 +1,23 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api, type Brief } from '../api'
 import Disclaimer from '../components/Disclaimer'
 
 export default function BriefPage() {
+  const { conditionId } = useParams<{ conditionId: string }>()
   const [brief, setBrief] = useState<Brief | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.brief().then(setBrief).catch((e) => setError(String(e)))
-  }, [])
+    if (!conditionId) return
+    api.brief(conditionId).then(setBrief).catch((e) => setError(String(e)))
+  }, [conditionId])
 
   if (error) {
     return (
       <div className="min-h-svh bg-white px-5 pb-10 pt-8">
-        <Link to="/" className="text-sm text-slate-400">
-          ← Home
+        <Link to={`/conditions/${conditionId}`} className="text-sm text-slate-400">
+          ← Back
         </Link>
         <p className="mt-6 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>
       </div>
@@ -35,8 +37,8 @@ export default function BriefPage() {
 
   return (
     <div className="min-h-svh bg-white px-5 pb-10 pt-8 font-serif">
-      <Link to="/" className="text-sm font-sans text-slate-400">
-        ← Home
+      <Link to={`/conditions/${conditionId}`} className="text-sm font-sans text-slate-400">
+        ← Back
       </Link>
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

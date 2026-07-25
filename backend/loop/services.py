@@ -1,13 +1,19 @@
 """
-Claude calls for the loop app, and the three system prompts, verbatim from
-product_doc.md. Every call returns JSON only; parse defensively and surface
-the raw text on failure so a bad response is debuggable, not silent.
+LLM calls for the loop app, and the four system prompts (three verbatim from
+product_doc.md, plus the chatbot one). Every call returns JSON only; parse
+defensively and surface the raw text on failure so a bad response is
+debuggable, not silent.
+
+Routes to Anthropic (Claude) by default, or to an OpenAI-compatible endpoint
+("Codex") when LLM_PROVIDER=codex — same prompts, same JSON-only contract,
+either way.
 
 Where a schema exists in schemas/, it is passed to the API so the provider
 enforces the shape rather than the prompt merely asking for it. A summary that
 silently loses `commitments` is worse than one that fails loudly: the interval
 is built from those commitments, and an empty list looks like a patient who
-agreed to nothing rather than like a bug.
+agreed to nothing rather than like a bug. The chatbot has no schema and passes
+none — free-form answers are the point there.
 """
 
 import json
@@ -40,38 +46,6 @@ def load_schema(name: str) -> dict:
     return {k: v for k, v in body.items() if not k.startswith("$")}
 
 
-def _client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-
-
-def _codex_client() -> openai.OpenAI:
-    return openai.OpenAI(
-        api_key=settings.CODEX_API_KEY,
-        base_url=settings.CODEX_BASE_URL,
-    )
-
-
-def _call_codex(system_prompt: str, user_content: str, schema: dict | None) -> str:
-    """Same contract as the Anthropic call, in the Chat Completions shape."""
-    if schema is None:
-        response_format = {"type": "json_object"}
-    else:
-        response_format = {
-            "type": "json_schema",
-            "json_schema": {"name": "response", "schema": schema, "strict": False},
-        }
-
-    response = _codex_client().chat.completions.create(
-        model=settings.CODEX_MODEL,
-        response_format=response_format,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-    )
-    return response.choices[0].message.content or ""
-
-
 def _call_anthropic(system_prompt: str, user_content: str, schema: dict | None) -> str:
     kwargs = {}
     if schema is not None:
@@ -79,7 +53,7 @@ def _call_anthropic(system_prompt: str, user_content: str, schema: dict | None) 
             "format": {"type": "json_schema", "schema": schema}
         }
 
-    response = _client().messages.create(
+    response = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY).messages.create(
         model=settings.ANTHROPIC_MODEL,
         max_tokens=4096,
         system=system_prompt,
@@ -91,21 +65,47 @@ def _call_anthropic(system_prompt: str, user_content: str, schema: dict | None) 
     )
 
 
-def call_claude_json(
+def _call_codex(system_prompt: str, user_content: str, schema: dict | None) -> str:
+    """Same contract as the Anthropic call, in the Chat Completions shape."""
+    if not settings.CODEX_API_KEY:
+        raise RuntimeError("CODEX_API_KEY is not set — check your .env")
+
+    if schema is None:
+        response_format = {"type": "json_object"}
+    else:
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema, "strict": False},
+        }
+
+    client = openai.OpenAI(api_key=settings.CODEX_API_KEY, base_url=settings.CODEX_BASE_URL)
+    response = client.chat.completions.create(
+        model=settings.CODEX_MODEL,
+        response_format=response_format,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+    )
+    return response.choices[0].message.content or ""
+
+
+def call_llm_json(
     system_prompt: str, user_content: str, *, schema_name: str | None = None
 ) -> dict:
     """Call the configured provider and return parsed JSON.
 
     Pass `schema_name` (a stem under schemas/, e.g. "visit_summary") to have
     the provider enforce the shape. Without it the model is only asked nicely,
-    which is fine for a scratch call and not fine for anything persisted.
+    which is fine for a free-form answer and not fine for anything persisted.
     """
     schema = load_schema(schema_name) if schema_name else None
 
-    if settings.LLM_PROVIDER == "codex":
-        raw_text = _call_codex(system_prompt, user_content, schema)
-    else:
-        raw_text = _call_anthropic(system_prompt, user_content, schema)
+    raw_text = (
+        _call_codex(system_prompt, user_content, schema)
+        if settings.LLM_PROVIDER == "codex"
+        else _call_anthropic(system_prompt, user_content, schema)
+    )
     try:
         return json.loads(raw_text)
     except json.JSONDecodeError as exc:
@@ -243,5 +243,30 @@ Schema:
   "changed": [{ "text": "", "direction": "better | worse | unchanged | unclear" }],
   "open_questions": ["string"],
   "gaps": ["string — what the record does not cover"]
+}
+"""
+
+
+# --- D. Ask a question about a visit -----------------------------------------
+
+QA_SYSTEM_PROMPT = """\
+You are answering a patient's question about ONE of their recorded
+consultations. You will receive the visit's transcript and its structured
+summary, then a question.
+
+Rules:
+- Answer using ONLY the transcript and summary provided. Do not use outside
+  medical knowledge, and do not add advice, dosing guidance, or recommendations
+  that are not already in the record.
+- If the record does not contain the answer, say so plainly rather than
+  guessing — set "grounded" to false.
+- Quote or closely paraphrase the record where possible.
+- Keep the answer conversational and brief (a few sentences).
+- Return valid JSON only. No markdown, no commentary.
+
+Schema:
+{
+  "answer": "string",
+  "grounded": true
 }
 """

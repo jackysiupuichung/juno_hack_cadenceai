@@ -26,10 +26,9 @@ load_dotenv(BASE_DIR.parent / ".env")
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-dev-only-do-not-use-in-production",
-)
+# `or` rather than get()'s default: an .env with DJANGO_SECRET_KEY= (present
+# but empty, as in .env.example) must still fall through to the dev default.
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or "django-insecure-dev-only-do-not-use-in-production"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
@@ -159,7 +158,15 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
 
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
-ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-5')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL') or 'claude-sonnet-5'
+
+# Which backend answers the four LLM calls in loop/services.py. "anthropic"
+# is the default so an unset env behaves exactly as it always has; "codex"
+# routes to an OpenAI-compatible endpoint using CODEX_* instead.
+LLM_PROVIDER = (os.environ.get('LLM_PROVIDER') or 'anthropic').strip().lower()
+CODEX_API_KEY = os.environ.get('CODEX_API_KEY')
+CODEX_BASE_URL = os.environ.get('CODEX_BASE_URL') or 'https://api.openai.com/v1'
+CODEX_MODEL = os.environ.get('CODEX_MODEL') or 'gpt-5.5'
 
 # Which backend answers the LLM calls. "anthropic" is the default so an unset
 # env behaves as before; "codex" routes to an OpenAI-compatible endpoint.
@@ -169,4 +176,4 @@ CODEX_BASE_URL = os.environ.get('CODEX_BASE_URL', 'https://api.openai.com/v1')
 CODEX_MODEL = os.environ.get('CODEX_MODEL', 'gpt-5')
 
 # Hackathon MVP: one hardcoded patient/condition, no auth model at all.
-PATIENT_ID = os.environ.get('PATIENT_ID', '00000000-0000-0000-0000-000000000001')
+PATIENT_ID = os.environ.get('PATIENT_ID') or '00000000-0000-0000-0000-000000000001'

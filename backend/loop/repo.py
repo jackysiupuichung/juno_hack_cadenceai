@@ -11,14 +11,12 @@ from django.conf import settings
 
 from .supabase_client import get_supabase
 
-DEFAULT_PATIENT_NAME = "Demo Patient"
-DEFAULT_CONDITION_NAME = "Primary condition"
+DEFAULT_PATIENT_NAME = "My Profile"
 
 
-def get_default_condition() -> dict:
-    """Get-or-create the single hardcoded patient + their one condition."""
+def get_or_create_patient() -> dict:
+    """The single hardcoded patient — there is still no auth/multi-patient."""
     sb = get_supabase()
-
     patients = sb.table("patients").select("*").eq("id", settings.PATIENT_ID).execute().data
     if not patients:
         patients = (
@@ -27,30 +25,51 @@ def get_default_condition() -> dict:
             .execute()
             .data
         )
-    patient = patients[0]
+    return patients[0]
 
-    conditions = (
+
+def update_patient_name(patient_id: str, name: str) -> dict:
+    sb = get_supabase()
+    return sb.table("patients").update({"name": name}).eq("id", patient_id).execute().data[0]
+
+
+def list_conditions(patient_id: str) -> list[dict]:
+    sb = get_supabase()
+    return (
         sb.table("conditions")
         .select("*")
-        .eq("patient_id", patient["id"])
-        .eq("name", DEFAULT_CONDITION_NAME)
+        .eq("patient_id", patient_id)
+        .order("created_at", desc=True)
         .execute()
         .data
     )
-    if not conditions:
-        conditions = (
-            sb.table("conditions")
-            .insert(
-                {
-                    "patient_id": patient["id"],
-                    "name": DEFAULT_CONDITION_NAME,
-                    "status": "active",
-                }
-            )
-            .execute()
-            .data
-        )
-    return conditions[0]
+
+
+def create_condition(patient_id: str, name: str) -> dict:
+    sb = get_supabase()
+    return (
+        sb.table("conditions")
+        .insert({"patient_id": patient_id, "name": name, "status": "active"})
+        .execute()
+        .data[0]
+    )
+
+
+def get_condition(condition_id: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("conditions").select("*").eq("id", condition_id).execute().data
+    return rows[0] if rows else None
+
+
+def update_condition_status(condition_id: str, status: str) -> dict:
+    sb = get_supabase()
+    return sb.table("conditions").update({"status": status}).eq("id", condition_id).execute().data[0]
+
+
+def delete_condition(condition_id: str) -> None:
+    """Cascades to visits/commitments/check_ins/outcomes/briefs via FK."""
+    sb = get_supabase()
+    sb.table("conditions").delete().eq("id", condition_id).execute()
 
 
 def list_visits(condition_id: str) -> list[dict]:
@@ -65,7 +84,17 @@ def list_visits(condition_id: str) -> list[dict]:
     )
 
 
-def create_visit(condition_id: str, *, date, care_setting, clinician_name, organisation, transcript, summary) -> dict:
+def create_visit(
+    condition_id: str,
+    *,
+    date,
+    care_setting,
+    clinician_name,
+    organisation,
+    organisation_address="",
+    transcript,
+    summary,
+) -> dict:
     sb = get_supabase()
     row = {
         "condition_id": condition_id,
@@ -73,10 +102,23 @@ def create_visit(condition_id: str, *, date, care_setting, clinician_name, organ
         "care_setting": care_setting,
         "clinician_name": clinician_name,
         "organisation": organisation,
+        "organisation_address": organisation_address,
         "transcript": transcript,
         "summary": summary,
     }
     return sb.table("visits").insert(row).execute().data[0]
+
+
+def get_visit(visit_id: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("visits").select("*").eq("id", visit_id).execute().data
+    return rows[0] if rows else None
+
+
+def delete_visit(visit_id: str) -> None:
+    """Cascades to commitments/outcomes via FK."""
+    sb = get_supabase()
+    sb.table("visits").delete().eq("id", visit_id).execute()
 
 
 def create_commitments(visit_id: str, commitments: list[dict]) -> list[dict]:

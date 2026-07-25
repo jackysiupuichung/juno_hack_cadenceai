@@ -1,5 +1,6 @@
-"""API endpoints for the loop: timeline, visit summarisation, check-ins, and
-the next-visit brief. See product_doc.md for the screens these serve."""
+"""API endpoints for the loop: patient profile, conditions, timeline, visit
+summarisation, check-ins, and the next-visit brief. See product_doc.md for
+the screens these serve."""
 
 from __future__ import annotations
 
@@ -24,9 +25,10 @@ from . import repo
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
+    QA_SYSTEM_PROMPT,
     SUMMARISE_SYSTEM_PROMPT,
     LLMJSONError,
-    call_claude_json,
+    call_llm_json,
 )
 
 RESOLVED_STATUSES = {"done", "not_done", "changed"}
@@ -75,11 +77,145 @@ def _interval_facts(condition_id: str):
     return facts, context, prior
 
 
+def _condition_or_404(condition_id: str):
+    condition = repo.get_condition(condition_id) if condition_id else None
+    if not condition:
+        return None, Response({"error": "condition not found"}, status=status.HTTP_404_NOT_FOUND)
+    return condition, None
+
+
+# --- Patient profile ---------------------------------------------------------
+
+
+@api_view(["GET", "PATCH"])
+def patient(request):
+    """GET returns the (single, hardcoded) patient's profile. PATCH updates
+    their name — set during onboarding."""
+    if request.method == "PATCH":
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        p = repo.get_or_create_patient()
+        updated = repo.update_patient_name(p["id"], name)
+        return Response(updated)
+
+    return Response(repo.get_or_create_patient())
+
+
+# --- Conditions ("My Conditions" home) ---------------------------------------
+
+
+@api_view(["GET", "POST"])
+def conditions(request):
+    """GET lists every condition with its appointment count and most recent
+    follow-up plan (the Home screen's reminder). POST creates a new one."""
+    p = repo.get_or_create_patient()
+
+    if request.method == "POST":
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        created = repo.create_condition(p["id"], name)
+        return Response(created, status=status.HTTP_201_CREATED)
+
+    result = []
+    for c in repo.list_conditions(p["id"]):
+        visits = repo.list_visits(c["id"])
+        reminder = None
+        for v in visits:  # newest first
+            plan = (v.get("summary") or {}).get("future_plan") or {}
+            if plan.get("follow_up_needed") and plan.get("date_or_timeframe"):
+                reminder = {
+                    "date_or_timeframe": plan["date_or_timeframe"],
+                    "purpose": plan.get("purpose", ""),
+                }
+                break
+        result.append(
+            {
+                **c,
+                "appointment_count": len(visits),
+                "reminder": reminder,
+            }
+        )
+    return Response(result)
+
+
+@api_view(["POST", "DELETE"])
+def condition_detail(request, condition_id):
+    """POST {"status": "completed" | "active"} updates status.
+    DELETE removes the condition and everything under it."""
+    condition, error = _condition_or_404(condition_id)
+    if error:
+        return error
+
+    if request.method == "DELETE":
+        repo.delete_condition(condition_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    new_status = request.data.get("status")
+    if new_status not in ("active", "completed"):
+        return Response(
+            {"error": "status must be 'active' or 'completed'"}, status=status.HTTP_400_BAD_REQUEST
+        )
+    return Response(repo.update_condition_status(condition_id, new_status))
+
+
+@api_view(["GET", "DELETE"])
+def visit_detail(request, visit_id):
+    """GET the full visit (summary + transcript + commitments) — the
+    Visit detail / summary screen. DELETE removes a single appointment
+    (Settings: per-appointment erasure)."""
+    if request.method == "DELETE":
+        repo.delete_visit(visit_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    visit = repo.get_visit(visit_id)
+    if not visit:
+        return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+    commitments = repo.get_commitments_for_visit(visit_id)
+    return Response({**visit, "commitments": commitments})
+
+
+@api_view(["POST"])
+def ask(request):
+    """Chatbot: answer a question about one recorded visit, grounded only in
+    its transcript + structured summary. Requires "visit_id" and "question"."""
+    visit_id = request.data.get("visit_id")
+    question = (request.data.get("question") or "").strip()
+    if not visit_id or not question:
+        return Response(
+            {"error": "visit_id and question are required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    visit = repo.get_visit(visit_id)
+    if not visit:
+        return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    user_content = (
+        f"Transcript:\n{visit.get('transcript', '')}\n\n"
+        f"Structured summary:\n{visit.get('summary')}\n\n"
+        f"Question: {question}"
+    )
+    try:
+        result = call_llm_json(QA_SYSTEM_PROMPT, user_content)
+    except LLMJSONError as exc:
+        return Response(
+            {"error": "Claude did not return valid JSON", "raw": exc.raw_text},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    return Response(result)
+
+
+# --- Per-condition timeline / loop -------------------------------------------
+
+
 @api_view(["GET"])
 def timeline(request):
-    """Home screen: the open-commitments panel + a merged, newest-first feed
-    of visits, check-ins, and briefs."""
-    condition = repo.get_default_condition()
+    """Condition detail screen: the open-commitments panel + a merged,
+    newest-first feed of visits, check-ins, and briefs for one condition."""
+    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    if error:
+        return error
     condition_id = condition["id"]
 
     visits = repo.list_visits(condition_id)
@@ -109,7 +245,7 @@ def timeline(request):
 
     return Response(
         {
-            "condition": {"id": condition_id, "name": condition["name"]},
+            "condition": condition,
             "open_commitments": repo.get_open_commitments(condition_id),
             "events": events,
             "has_visits": len(visits) > 0,
@@ -122,15 +258,18 @@ def summarise(request):
     """
     Transcript (pasted, or the output of /api/transcribe) in; a persisted
     visit + its Claude-structured summary + extracted commitments out.
+    Requires "condition_id" in the body.
     """
+    condition, error = _condition_or_404(request.data.get("condition_id"))
+    if error:
+        return error
+
     transcript = (request.data.get("transcript") or "").strip()
     if not transcript:
         return Response({"error": "transcript is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    condition = repo.get_default_condition()
-
     try:
-        summary = call_claude_json(
+        summary = call_llm_json(
             SUMMARISE_SYSTEM_PROMPT, transcript, schema_name="visit_summary"
         )
     except LLMJSONError as exc:
@@ -145,6 +284,7 @@ def summarise(request):
         care_setting=request.data.get("care_setting", "gp"),
         clinician_name=request.data.get("clinician_name", ""),
         organisation=request.data.get("organisation", ""),
+        organisation_address=request.data.get("organisation_address", ""),
         transcript=transcript,
         summary=summary,
     )
@@ -163,7 +303,10 @@ def checkin_context(request):
     baked into the agent so a check-in always reflects what the record holds
     now, including anything an earlier call in the same interval turned up.
     """
-    condition = repo.get_default_condition()
+    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    if error:
+        return error
+
     try:
         facts, context, _ = _interval_facts(condition["id"])
     except IntervalError as exc:
@@ -201,10 +344,13 @@ def checkin_context(request):
 @api_view(["POST"])
 def checkin(request):
     """
-    Voice path:        { "transcript": "..." }  -> mapped onto open commitments via Claude
-    Text-form fallback: { "outcomes": [{"commitment_id": "...", "status": "...", "note": "..."}] }
+    Voice path:        { "condition_id": "...", "transcript": "..." }
+    Text-form fallback: { "condition_id": "...", "outcomes": [{"commitment_id": "...", "status": "...", "note": "..."}] }
     """
-    condition = repo.get_default_condition()
+    condition, error = _condition_or_404(request.data.get("condition_id"))
+    if error:
+        return error
+
     open_commitments = repo.get_open_commitments(condition["id"])
     transcript = request.data.get("transcript", "")
 
@@ -212,7 +358,7 @@ def checkin(request):
         commitments_context = [{"commitment_id": c["id"], "text": c["text"]} for c in open_commitments]
         user_content = f"Transcript:\n{transcript}\n\nOpen commitments:\n{commitments_context}"
         try:
-            mapped = call_claude_json(
+            mapped = call_llm_json(
                 CHECKIN_SYSTEM_PROMPT, user_content, schema_name="check_in"
             )
         except LLMJSONError as exc:
@@ -294,8 +440,12 @@ def checkin(request):
 @api_view(["POST"])
 def brief(request):
     """Generate the next-visit brief from the latest visit + every check-in
-    outcome recorded since. The hero screen — see product_doc.md."""
-    condition = repo.get_default_condition()
+    outcome recorded since. The hero screen — see product_doc.md. Requires
+    "condition_id" in the body."""
+    condition, error = _condition_or_404(request.data.get("condition_id"))
+    if error:
+        return error
+
     visits = repo.list_visits(condition["id"])
     if not visits:
         return Response({"error": "no visits recorded yet"}, status=status.HTTP_400_BAD_REQUEST)
@@ -339,7 +489,7 @@ def brief(request):
         pass
 
     try:
-        content = call_claude_json(
+        content = call_llm_json(
             BRIEF_SYSTEM_PROMPT, user_content, schema_name="brief"
         )
     except LLMJSONError as exc:

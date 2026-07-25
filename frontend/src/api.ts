@@ -10,8 +10,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
-function json(body: unknown): RequestInit {
-  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+function json(body: unknown, method = 'POST'): RequestInit {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+}
+
+export interface Patient {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface Reminder {
+  date_or_timeframe: string
+  purpose: string
+}
+
+export interface Condition {
+  id: string
+  name: string
+  status: 'active' | 'completed'
+  created_at: string
+  appointment_count: number
+  reminder: Reminder | null
 }
 
 export interface Commitment {
@@ -34,7 +54,7 @@ export interface TimelineEvent {
 }
 
 export interface Timeline {
-  condition: { id: string; name: string }
+  condition: Condition
   open_commitments: Commitment[]
   events: TimelineEvent[]
   has_visits: boolean
@@ -57,6 +77,7 @@ export interface Visit {
   care_setting: string
   clinician_name: string
   organisation: string
+  organisation_address: string
   transcript: string
   summary: VisitSummary
   commitments: Commitment[]
@@ -79,7 +100,22 @@ export interface Brief {
 }
 
 export const api = {
-  timeline: () => request<Timeline>('/timeline'),
+  getPatient: () => request<Patient>('/patient'),
+  setPatientName: (name: string) => request<Patient>('/patient', json({ name }, 'PATCH')),
+
+  listConditions: () => request<Condition[]>('/conditions'),
+  createCondition: (name: string) => request<Condition>('/conditions', json({ name })),
+  setConditionStatus: (conditionId: string, status: 'active' | 'completed') =>
+    request<Condition>(`/conditions/${conditionId}`, json({ status })),
+  deleteCondition: (conditionId: string) =>
+    request<void>(`/conditions/${conditionId}`, { method: 'DELETE' }),
+  getVisit: (visitId: string) => request<Visit>(`/visits/${visitId}`),
+  deleteVisit: (visitId: string) => request<void>(`/visits/${visitId}`, { method: 'DELETE' }),
+
+  timeline: (conditionId: string) => request<Timeline>(`/timeline?condition_id=${conditionId}`),
+
+  ask: (visitId: string, question: string) =>
+    request<{ answer: string; grounded: boolean }>('/ask', json({ visit_id: visitId, question })),
 
   transcribe: (audio: Blob) => {
     const form = new FormData()
@@ -88,17 +124,22 @@ export const api = {
   },
 
   summarise: (data: {
+    condition_id: string
     transcript: string
     date: string
     care_setting: string
     clinician_name?: string
     organisation?: string
+    organisation_address?: string
   }) => request<Visit>('/summarise', json(data)),
 
-  checkin: (data: { transcript?: string; outcomes?: { commitment_id: string; status: string; note: string }[] }) =>
-    request<unknown>('/checkin', json(data)),
+  checkin: (data: {
+    condition_id: string
+    transcript?: string
+    outcomes?: { commitment_id: string; status: string; note: string }[]
+  }) => request<unknown>('/checkin', json(data)),
 
-  brief: () => request<Brief>('/brief', { method: 'POST' }),
+  brief: (conditionId: string) => request<Brief>('/brief', json({ condition_id: conditionId })),
 
   reset: () => request<void>('/reset', { method: 'POST' }),
 }

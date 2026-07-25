@@ -78,7 +78,7 @@ requires-dist = [
     { name = "elevenlabs", specifier = ">=2.59.0" },
     { name = "gunicorn", specifier = ">=26.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "openai", specifier = ">=1.109.1" },
+    { name = "openai", specifier = ">=2.48.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "supabase", specifier = ">=2.31.0" },
 ]
