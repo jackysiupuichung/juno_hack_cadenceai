@@ -125,7 +125,7 @@ def summarise(request):
         summary = summarise_transcript(transcript)
     except SummariseError as exc:
         # A missing key is a deployment problem; everything else is upstream.
-        if "ANTHROPIC_API_KEY" in str(exc):
+        if "ANTHROPIC_API_KEY" in str(exc) or "CODEX_API_KEY" in str(exc):
             return Response(
                 {"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
