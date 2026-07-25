@@ -60,8 +60,8 @@ export default function BriefPage() {
     setLoading(true)
     setError(null)
     try {
-      const { brief } = await api.brief(conditionId)
-      setBrief(brief)
+      const row = await api.brief(conditionId)
+      setBrief(row.content)
     } catch (err) {
       setError(
         err instanceof ApiError || err instanceof Error

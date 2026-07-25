@@ -120,8 +120,10 @@ export interface Visit {
   care_setting: string
   clinician_name?: string
   organisation?: string
+  organisation_address?: string
   transcript: string
   summary: VisitSummary | null
+  created_at?: string
   commitments?: Commitment[]
 }
 
@@ -250,8 +252,20 @@ export const api = {
     }>
   }) => post<unknown>("checkin", input),
 
+  /**
+   * Build and persist the next-visit brief.
+   *
+   * The brief itself arrives under `content` — the row is the stored artifact
+   * and the brief is its body, which is what lets a later interval point back
+   * at the one the patient actually walked in with.
+   */
   brief: (conditionId: string) =>
-    post<{ brief: Brief }>("brief", { condition_id: conditionId }),
+    post<{
+      id: string
+      condition_id: string
+      generated_at: string
+      content: Brief
+    }>("brief", { condition_id: conditionId }),
 
   timeline: (conditionId: string) =>
     get<{
