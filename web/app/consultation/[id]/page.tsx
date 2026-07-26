@@ -168,23 +168,6 @@ export default function ConsultationPage() {
           </div>
         ) : (
           <>
-            {s.red_flags.length > 0 && (
-              <SummaryCard
-                tone="warning"
-                icon={<AlertTriangle />}
-                title="Warning signs — seek help if these happen"
-              >
-                <ul className="flex flex-col gap-1.5">
-                  {s.red_flags.map((f, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-warning-foreground/70" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-              </SummaryCard>
-            )}
-
             {s.doctor_diagnosis && (
               <SummaryCard icon={<Stethoscope />} title="Diagnosis">
                 <p>{s.doctor_diagnosis}</p>
@@ -200,6 +183,23 @@ export default function ConsultationPage() {
             {s.doctor_advice && (
               <SummaryCard icon={<HeartPulse />} title="Doctor's advice">
                 <p>{s.doctor_advice}</p>
+              </SummaryCard>
+            )}
+
+            {s.red_flags.length > 0 && (
+              <SummaryCard
+                tone="warning"
+                icon={<AlertTriangle />}
+                title="Warning signs — seek help if these happen"
+              >
+                <ul className="flex flex-col gap-1.5">
+                  {s.red_flags.map((f, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-warning-foreground/70" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
               </SummaryCard>
             )}
 
