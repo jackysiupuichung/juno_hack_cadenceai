@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { HeartPulse, ShieldAlert } from "lucide-react"
 import { useApp } from "@/lib/store"
 import { computeAge } from "@/lib/dates"
-import { AppShell, Content } from "@/components/app-shell"
+import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -74,6 +74,7 @@ export default function OnboardingPage() {
 
   return (
     <AppShell>
+      <ScreenHeader title="" backHref="/" />
       <Content className="flex flex-1 flex-col justify-center">
         <div className="mb-8">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
