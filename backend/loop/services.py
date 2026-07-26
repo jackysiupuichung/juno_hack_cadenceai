@@ -55,7 +55,7 @@ def _call_anthropic(system_prompt: str, user_content: str, schema: dict | None) 
 
     response = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY).messages.create(
         model=settings.ANTHROPIC_MODEL,
-        max_tokens=4096,
+        max_tokens=8192,
         system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
         **kwargs,
@@ -152,6 +152,14 @@ Rules:
   commitment, quote the one that best anchors it.
 - Write in plain, patient-friendly language.
 - Return valid JSON only, matching the schema. No markdown, no commentary.
+
+doctor_advice:
+- General guidance and instructions the doctor gave, in plain language.
+- Do not restate a red flag here with its own rationale attached (e.g. do not
+  write "...as this could mean X or Y, so seek help if it happens") — a sign
+  the doctor said to watch for and act on belongs in red_flags instead,
+  following the red_flags rules below, not duplicated here with the
+  speculation those rules strip out.
 
 doctor_diagnosis:
 - Give the diagnosis as the doctor stated it, then add one or two short
