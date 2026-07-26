@@ -166,22 +166,24 @@ doctor_diagnosis:
   doctor_advice, and only if the doctor actually said it.
 
 red_flags:
-- Bullet points only: short, plain phrases a patient would recognise at a
-  glance. Never a full paraphrased sentence, and never a running account of
-  what the doctor said.
+- Bullet points only: the symptom or sign, and the action if one was given
+  (e.g. "Chest pain or fainting — call 999"). Never explain WHY it matters or
+  what it might indicate — no "which could mean...", no "this can happen
+  because...", no rationale of any kind. State the sign, state the action,
+  stop there.
 - Include only the reasons the doctor actually gave to come back, seek urgent
   care, or watch for something. If a sentence about this doesn't fully parse,
   leave that bullet out rather than guessing at what it meant.
 - When a KNOWN CONDITION REFERENCE block is given and the doctor's words
-  describe symptoms covered by one of its listed signs, use that reference
-  bullet AS WRITTEN instead of composing your own. Do not add your own clause
-  speculating about what the symptom could mean (e.g. do not write "...which
-  could mean X or Y") — the reference bullet already says what it's for and
-  what to do about it. If several things the doctor mentioned belong to the
-  same reference sign, output that one bullet once, not a separate bullet per
-  symptom. If the doctor mentioned a reason to watch out that genuinely isn't
-  covered by the reference, include it in the patient's own plain words — do
-  not drop something the doctor actually said just because it isn't listed.
+  describe symptoms covered by one of its listed signs, use that reference's
+  "watch_for" signs and action, not its full patient_facing sentence — that
+  sentence includes reasoning of its own kind and framing you must strip out.
+  If several things the doctor mentioned belong to the same reference sign,
+  output that one bullet once, not a separate bullet per symptom. If the
+  doctor mentioned a reason to watch out that genuinely isn't covered by the
+  reference, include it as a plain sign + action — do not drop something the
+  doctor actually said just because it isn't listed, and do not explain it
+  either.
 
 Schema:
 {
@@ -226,19 +228,25 @@ def build_summarise_user_content(transcript: str, disease_context: dict | None) 
         return transcript
 
     condition = disease_context.get("condition", {})
-    signs = [
-        flag["patient_facing"].strip()
-        for flag in disease_context.get("red_flags", [])
-        if flag.get("patient_facing", "").strip()
-    ]
-    if not signs:
+    lines = []
+    for flag in disease_context.get("red_flags", []):
+        watch_for = flag.get("watch_for") or []
+        action = flag.get("action", "").strip()
+        if not watch_for:
+            continue
+        bullet = ", ".join(w.strip() for w in watch_for if w.strip())
+        if action:
+            bullet = f"{bullet} — {action}"
+        lines.append(bullet)
+    if not lines:
         return transcript
 
     header = (
         f"KNOWN CONDITION REFERENCE — {condition.get('name', '')} "
         f"({condition.get('plain_name', '')}):\n"
-        "Recognised warning signs for this condition:\n"
-        + "\n".join(f"- {sign}" for sign in signs)
+        "Recognised warning signs for this condition (sign — action, no "
+        "rationale — do not add any):\n"
+        + "\n".join(f"- {line}" for line in lines)
     )
     return f"{header}\n\nTRANSCRIPT:\n{transcript}"
 
