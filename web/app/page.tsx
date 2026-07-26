@@ -15,6 +15,7 @@ import {
 import { useApp } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
+import { LoopSchematic } from "@/components/loop-schematic"
 
 const LOOP_STEPS = [
   {
@@ -168,6 +169,12 @@ export default function LandingPage() {
             </Reveal>
           ))}
         </div>
+
+        <Reveal delay={120}>
+          <div className="mt-16">
+            <LoopSchematic />
+          </div>
+        </Reveal>
       </section>
 
       {/* Trust */}
