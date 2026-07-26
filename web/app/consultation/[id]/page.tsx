@@ -16,7 +16,6 @@ import {
   Stethoscope,
   Trash2,
   User,
-  FileText,
 } from "lucide-react"
 import { isUpcoming, untilLabel, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
@@ -317,29 +316,6 @@ export default function ConsultationPage() {
             </DialogContent>
           </Dialog>
 
-          {appointment.transcript && (
-            <Dialog>
-              <DialogTrigger
-                render={
-                  <Button variant="ghost" size="sm" className="text-muted-foreground">
-                    <FileText className="size-4" />
-                    View transcript
-                  </Button>
-                }
-              />
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Transcript</DialogTitle>
-                  <DialogDescription>
-                    Automatically generated from your recording.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-muted/60 p-3 text-sm leading-relaxed text-foreground">
-                  {appointment.transcript}
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
         </section>
       </Content>
     </AppShell>
