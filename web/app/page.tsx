@@ -15,6 +15,7 @@ import {
 import { useApp } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
+import { BriefMini } from "@/components/brief-mini"
 import { LoopSchematic } from "@/components/loop-schematic"
 
 const LOOP_STEPS = [
@@ -75,61 +76,65 @@ export default function LandingPage() {
         </Button>
       </header>
 
-      {/* Hero */}
-      <section className="relative mx-auto flex w-full max-w-5xl flex-col items-center px-6 pb-20 pt-10 text-center sm:pb-28 sm:pt-16">
+      {/* Hero. The old orb said "AI product"; the brief thumbnail says what
+          this one actually makes, so the artifact takes the orb's place. */}
+      <section className="relative mx-auto w-full max-w-5xl px-6 pb-16 pt-10 sm:pb-24 sm:pt-14">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-10 left-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"
-          style={{ animation: "orb-float 9s ease-in-out infinite" }}
+          className="pointer-events-none absolute inset-x-0 -top-24 -z-10 h-[440px] bg-[radial-gradient(60%_55%_at_72%_10%,color-mix(in_oklab,var(--primary)_7%,transparent),transparent)]"
         />
 
-        <div
-          className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-xs font-medium text-muted-foreground"
-          style={{ animation: "fade-up 500ms var(--ease-out) both" }}
-        >
-          <span className="inline-flex size-1.5 rounded-full bg-primary" />
-          Built for the patient, not the chart
-        </div>
+        <div className="grid grid-cols-1 items-center lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-14">
+          <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+            <h1
+              className="max-w-3xl text-balance font-[family-name:var(--font-display)] text-4xl font-medium leading-[1.08] tracking-tight text-foreground sm:text-5xl"
+              style={{ animation: "fade-up 600ms var(--ease-out) 60ms both" }}
+            >
+              A visit isn&apos;t an event.
+              <br />
+              It&apos;s the start of an interval.
+            </h1>
 
-        <h1
-          className="max-w-3xl text-balance font-[family-name:var(--font-display)] text-4xl font-medium leading-[1.08] tracking-tight text-foreground sm:text-6xl"
-          style={{ animation: "fade-up 600ms var(--ease-out) 60ms both" }}
-        >
-          A visit isn&apos;t an event.
-          <br />
-          It&apos;s the start of an interval.
-        </h1>
+            <p
+              className="mt-6 max-w-xl text-pretty text-lg text-muted-foreground"
+              style={{ animation: "fade-up 600ms var(--ease-out) 120ms both" }}
+            >
+              Cadence captures what your doctor said, follows the plan through
+              the weeks after, and walks you into the next visit already
+              prepared.
+            </p>
 
-        <p
-          className="mt-6 max-w-xl text-pretty text-lg text-muted-foreground"
-          style={{ animation: "fade-up 600ms var(--ease-out) 120ms both" }}
-        >
-          Cadence captures what your doctor said, follows the plan through the
-          weeks after, and walks you into the next visit already prepared.
-        </p>
+            <div
+              className="mt-9 flex flex-col items-center gap-3 sm:flex-row"
+              style={{ animation: "fade-up 600ms var(--ease-out) 180ms both" }}
+            >
+              <Button
+                size="lg"
+                className="h-12 px-7"
+                nativeButton={false}
+                render={<Link href="/onboarding" />}
+              >
+                Get started
+                <ArrowRight className="size-4" />
+              </Button>
+              <Button
+                size="lg"
+                variant="ghost"
+                className="h-12 px-7"
+                nativeButton={false}
+                render={<Link href="#how-it-works" />}
+              >
+                See how it works
+              </Button>
+            </div>
+          </div>
 
-        <div
-          className="mt-9 flex flex-col items-center gap-3 sm:flex-row"
-          style={{ animation: "fade-up 600ms var(--ease-out) 180ms both" }}
-        >
-          <Button
-            size="lg"
-            className="h-12 px-7"
-            nativeButton={false}
-            render={<Link href="/onboarding" />}
+          <div
+            className="mt-10 flex justify-center lg:mt-0"
+            style={{ animation: "fade-up 600ms var(--ease-out) 260ms both" }}
           >
-            Get started
-            <ArrowRight className="size-4" />
-          </Button>
-          <Button
-            size="lg"
-            variant="ghost"
-            className="h-12 px-7"
-            nativeButton={false}
-            render={<Link href="#how-it-works" />}
-          >
-            See how it works
-          </Button>
+            <BriefMini />
+          </div>
         </div>
       </section>
 
@@ -218,13 +223,6 @@ export default function LandingPage() {
       <footer className="mx-auto w-full max-w-5xl px-6 pb-10 text-center text-xs text-muted-foreground">
         Cadence documents and supports — it never diagnoses or prescribes.
       </footer>
-
-      <style>{`
-        @keyframes orb-float {
-          0%, 100% { transform: translate(-50%, 0) scale(1); }
-          50% { transform: translate(-50%, 18px) scale(1.06); }
-        }
-      `}</style>
     </div>
   )
 }

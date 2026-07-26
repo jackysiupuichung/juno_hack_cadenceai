@@ -134,6 +134,9 @@
   }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    /* Staggered reveals delay by up to ~500ms; without this, reduced-motion
+       users get the sections popping in late instead of instantly. */
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }

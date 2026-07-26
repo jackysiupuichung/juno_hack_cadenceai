@@ -36,7 +36,8 @@ export default function SettingsPage() {
     return (
       <AppShell>
         <ScreenHeader title="Settings" backHref="/home" />
-        <div className="flex flex-1 items-center justify-center">
+        <div role="status" className="flex flex-1 items-center justify-center">
+          <span className="sr-only">Loading</span>
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
       </AppShell>

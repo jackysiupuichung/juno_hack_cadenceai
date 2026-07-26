@@ -149,7 +149,7 @@ export default function CalendarPage() {
           </div>
         ) : (
           <>
-            <section className="rounded-3xl border border-border bg-card p-4">
+            <section className="rounded-2xl border border-border bg-card p-4">
               <div className="flex items-center justify-between px-1">
                 <button
                   type="button"

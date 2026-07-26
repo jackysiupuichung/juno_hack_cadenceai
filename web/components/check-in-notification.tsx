@@ -67,7 +67,7 @@ export function CheckInNotification({
         className="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5 transition-colors hover:bg-primary/10 active:bg-primary/15"
       >
         <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-          <PhoneCall className="size-4.5" />
+          <PhoneCall className="size-4" />
         </div>
 
         <div className="min-w-0 flex-1">

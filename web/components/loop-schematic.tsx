@@ -24,7 +24,7 @@ export function LoopSchematic() {
               <path d="M0 0 L10 5 L0 10 z" fill="oklch(0.91 0.012 218)" />
             </marker>
             <marker id="ls-m-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
-              <path d="M0 0 L10 5 L0 10 z" fill="oklch(0.58 0.09 212)" />
+              <path d="M0 0 L10 5 L0 10 z" fill="oklch(0.52 0.09 212)" />
             </marker>
             <marker id="ls-m-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
               <path d="M0 0 L10 5 L0 10 z" fill="oklch(0.62 0.19 33)" />
@@ -244,7 +244,7 @@ export function LoopSchematic() {
         .loop-schematic .ls-node{opacity:0;transform-box:fill-box;transform-origin:center;transition:filter .3s var(--ease-out)}
         .loop-schematic .ls-node:hover{filter:drop-shadow(0 6px 14px oklch(0.3 0.02 235 / 0.14))}
         .loop-schematic .ls-node rect.ls-box,.loop-schematic .ls-node path.ls-shape{fill:var(--card);stroke:var(--border);stroke-width:1.5}
-        .loop-schematic .ls-hero rect.ls-box{fill:var(--primary);stroke:none;filter:drop-shadow(0 10px 22px oklch(0.58 0.09 212 / 0.35))}
+        .loop-schematic .ls-hero rect.ls-box{fill:var(--primary);stroke:none;filter:drop-shadow(0 10px 22px oklch(0.52 0.09 212 / 0.35))}
         .loop-schematic .ls-alarm rect.ls-box{stroke:var(--destructive)}
         .loop-schematic .ls-alarm .ls-lab{fill:var(--destructive)}
 

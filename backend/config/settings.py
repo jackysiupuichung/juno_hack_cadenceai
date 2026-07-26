@@ -81,6 +81,20 @@ CORS_ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
+# On Vercel (which sets VERCEL=1) the host and the frontend origin are
+# *.vercel.app, and neither is knowable at commit time — preview deploys get
+# generated subdomains. Trust the platform's own domain rather than requiring
+# a dashboard env var that, unset, turns every request into a DisallowedHost
+# 400 or a silently dropped CORS call.
+if os.environ.get("VERCEL"):
+    # A public URL is no place for the debug page — it prints the whole
+    # settings table to anyone who triggers an error. An explicit
+    # DJANGO_DEBUG=true still wins for a deliberate debugging session.
+    DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+    ALLOWED_HOSTS.append(".vercel.app")
+    CORS_ALLOWED_ORIGIN_REGEXES = [r"^https://.*\.vercel\.app$"]
+    CSRF_TRUSTED_ORIGINS = ["https://*.vercel.app"]
+
 # Consultation recordings are large; allow them to stream to a temp file
 # rather than being held in memory.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
