@@ -256,6 +256,23 @@ export interface EventsResponse {
   trajectory: TrajectoryMarker[]
 }
 
+/**
+ * One answer from the record's Q&A.
+ *
+ * `withheld` marks a question the backend declined to answer — advice, dosing
+ * changes, anything over the CDS line — and its refusal text arrives in
+ * `answer`, written server-side to be shown verbatim. `grounded: false` is
+ * different and softer: the question was fair, the record just holds nothing
+ * on it. `sources` names where a grounded answer came from, because a record
+ * you can check is the difference between an answer and a chatbot.
+ */
+export interface AskResponse {
+  answer: string
+  grounded: boolean
+  sources?: string[]
+  withheld?: boolean
+}
+
 export interface CheckInContext {
   week: number
   visit_date: string
@@ -398,11 +415,18 @@ export const api = {
       has_visits: boolean
     }>(`timeline?condition_id=${conditionId}`),
 
-  ask: (conditionId: string, question: string) =>
-    post<{ answer: string }>("ask", {
-      condition_id: conditionId,
-      question,
-    }),
+  /**
+   * Ask the record a question — scoped to one visit or to everything a
+   * condition holds. The two scopes are one endpoint because they are one
+   * capability with a different record behind it; which id is sent is the
+   * whole difference.
+   */
+  ask: (
+    input: { question: string } & (
+      | { visit_id: string }
+      | { condition_id: string }
+    ),
+  ) => post<AskResponse>("ask", input),
 
   /** The calendar's endpoint — one condition's whole chronology in one call. */
   events: (conditionId: string) =>

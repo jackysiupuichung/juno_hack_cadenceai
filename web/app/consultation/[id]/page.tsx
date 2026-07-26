@@ -11,6 +11,7 @@ import {
   HeartPulse,
   Leaf,
   MapPin,
+  MessageCircleQuestion,
   Pill,
   Plus,
   Smile,
@@ -309,6 +310,20 @@ export default function ConsultationPage() {
             >
               <Smile className="size-4" />
               How has it gone since this visit?
+            </Button>
+          )}
+
+          {/* Only when there is a summary to ask about: an unprocessed visit
+              has no record behind the answers. */}
+          {s && (
+            <Button
+              variant="outline"
+              size="lg"
+              nativeButton={false}
+              render={<Link href={`/consultation/${appointment.id}/ask`} />}
+            >
+              <MessageCircleQuestion className="size-4" />
+              Ask about this visit
             </Button>
           )}
 

@@ -15,6 +15,7 @@ import {
   CalendarClock,
   MapPin,
   FileText,
+  MessageCircleQuestion,
   PhoneCall,
 } from "lucide-react"
 import { appointmentsForCondition, isUpcoming, untilLabel, useApp } from "@/lib/store"
@@ -225,16 +226,30 @@ export default function ConditionDetailPage() {
                 way to answer it from here — the overdue item was a fact the
                 patient could read but not act on. */}
             {!isCompleted && (
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full"
-                nativeButton={false}
-                render={<Link href={`/condition/${condition.id}/check-in`} />}
-              >
-                <PhoneCall className="size-4" />
-                Check in now
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  nativeButton={false}
+                  render={<Link href={`/condition/${condition.id}/check-in`} />}
+                >
+                  <PhoneCall className="size-4" />
+                  Check in now
+                </Button>
+                {/* The record can be read as well as written: ask it what you
+                    are taking, what was agreed, when something started. */}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  nativeButton={false}
+                  render={<Link href={`/condition/${condition.id}/ask`} />}
+                >
+                  <MessageCircleQuestion className="size-4" />
+                  Ask your record
+                </Button>
+              </>
             )}
           </div>
         )}

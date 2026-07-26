@@ -37,6 +37,7 @@ from . import disease_context as disease_context_module
 from .services import (
     BRIEF_SYSTEM_PROMPT,
     CHECKIN_SYSTEM_PROMPT,
+    CONDITION_QA_SYSTEM_PROMPT,
     EVENTS_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
     SUMMARISE_SYSTEM_PROMPT,
@@ -541,33 +542,151 @@ def visits(request):
     return Response(result)
 
 
+def _condition_record(condition_id: str) -> dict:
+    """Everything Cadence knows about one condition, shaped for a model to read.
+
+    The single-visit chatbot could answer "what did the doctor say" and nothing
+    else, which is not the question a patient has three weeks later. That one is
+    "am I still meant to be taking this", "did I ever get that test done",
+    "when did the dizziness start" — and every one of those is answered by the
+    interval, not the appointment. This assembles the interval.
+
+    Ordered newest-first at the top level, because the most common failure mode
+    for a question about an ongoing condition is answering from a superseded
+    instruction. Putting the current state first does not guarantee the model
+    uses it, but the prompt's date rule has something to bind to.
+    """
+    visits = repo.list_visits(condition_id)
+    record: dict = {
+        "consultations": [
+            {
+                "id": v["id"],
+                "date": v["date"],
+                "care_setting": v.get("care_setting"),
+                "clinician": v.get("clinician_name"),
+                "summary": v.get("summary"),
+                # The transcript is the ground truth and the summary is a
+                # lossy read of it, so questions about what was actually said
+                # need the words. Only for consultations that have one.
+                "transcript": v.get("transcript") or None,
+                "agreed": [
+                    {"text": c["text"], "type": c["type"], "timeframe": c.get("timeframe"),
+                     "status": c["status"]}
+                    for c in repo.get_commitments_for_visit(v["id"])
+                ],
+            }
+            for v in visits
+        ]
+    }
+
+    medications = medication_repo.list_medications(condition_id)
+    if medications:
+        record["medications"] = medications
+
+    # What the patient said on follow-up calls, kept explicitly separate from
+    # what a clinician said. The prompt forbids restating one as the other and
+    # this is the structure that makes the distinction legible.
+    check_ins = []
+    for row in sorted(repo.list_check_ins(condition_id), key=lambda c: c["date"], reverse=True):
+        raw = row.get("raw") or {}
+        check_ins.append(
+            {
+                "date": row["date"],
+                "patient_reported": [
+                    {"status": o.get("status"), "patient_words": o.get("patient_words"),
+                     "note": o.get("note")}
+                    for o in (row.get("outcomes") or [])
+                ],
+                "questions_for_doctor": raw.get("questions_for_doctor", []),
+            }
+        )
+    if check_ins:
+        record["check_ins_patient_reported"] = check_ins
+
+    dated = [e for e in ev.timeline([ev.from_row(r) for r in repo.list_events(condition_id)])
+             if e.is_dated]
+    if dated:
+        record["chronology"] = [{"when": e.when(), "what": e.label, "kind": e.kind} for e in dated]
+
+    return record
+
+
 @api_view(["POST"])
 def ask(request):
-    """Chatbot: answer a question about one recorded visit, grounded only in
-    its transcript + structured summary. Requires "visit_id" and "question"."""
+    """Chatbot: answer a patient's question, grounded only in their record.
+
+    Request (POST JSON): {"question": "...", plus exactly one scope}
+      - {"visit_id": ...}      answers from that one visit's transcript +
+                               structured summary — "what was said in the room".
+      - {"condition_id": ...}  answers from the whole condition record — every
+                               consultation (summary, transcript, what was
+                               agreed), the medications, what the patient
+                               reported on check-ins, and the dated chronology.
+                               "What has happened since."
+
+    Response, identical for both scopes so the frontend treats them the same:
+      {"answer": str, "grounded": bool, "sources": [str], "withheld": bool?}
+      - "sources" is which parts of the record the answer leans on
+        ("appointment 4 Mar"); the visit scope, grounded in one document,
+        returns it empty.
+      - "withheld" appears (true) only when the safety backstop replaced the
+        model's answer with the fallback text; "grounded" is then false and
+        "sources" empty.
+    Errors: 400 missing question/scope · 404 unknown visit or condition ·
+    502 the model did not return JSON.
+    """
     visit_id = request.data.get("visit_id")
+    condition_id = request.data.get("condition_id")
     question = (request.data.get("question") or "").strip()
-    if not visit_id or not question:
+    if not question or not (visit_id or condition_id):
         return Response(
-            {"error": "visit_id and question are required"}, status=status.HTTP_400_BAD_REQUEST
+            {"error": "question and one of condition_id / visit_id are required"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-    visit = repo.get_visit(visit_id)
-    if not visit:
-        return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+    if condition_id:
+        condition, error = _condition_or_404(condition_id)
+        if error:
+            return error
+        record = _condition_record(condition["id"])
+        if not record["consultations"]:
+            return Response(
+                {
+                    "answer": "There is nothing recorded for this condition yet — "
+                    "once you record an appointment I can answer from it.",
+                    "grounded": False,
+                    "sources": [],
+                }
+            )
+        system_prompt = CONDITION_QA_SYSTEM_PROMPT
+        user_content = (
+            f"Condition: {condition['name']}\n"
+            f"Today: {date_cls.today().isoformat()}\n\n"
+            f"Record:\n{json.dumps(record, indent=2, default=str)}\n\n"
+            f"Question: {question}"
+        )
+    else:
+        visit = repo.get_visit(visit_id)
+        if not visit:
+            return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+        system_prompt = QA_SYSTEM_PROMPT
+        user_content = (
+            f"Transcript:\n{visit.get('transcript', '')}\n\n"
+            f"Structured summary:\n{visit.get('summary')}\n\n"
+            f"Question: {question}"
+        )
 
-    user_content = (
-        f"Transcript:\n{visit.get('transcript', '')}\n\n"
-        f"Structured summary:\n{visit.get('summary')}\n\n"
-        f"Question: {question}"
-    )
     try:
-        result = call_llm_json(QA_SYSTEM_PROMPT, user_content)
+        result = call_llm_json(system_prompt, user_content)
     except LLMJSONError as exc:
         return Response(
             {"error": "Claude did not return valid JSON", "raw": exc.raw_text},
             status=status.HTTP_502_BAD_GATEWAY,
         )
+
+    # One shape for both scopes. The visit prompt's schema has no "sources";
+    # the frontend should not have to know which prompt ran.
+    result.setdefault("sources", [])
 
     # The only free-text answer Cadence gives a patient. The prompt forbids
     # advice, but this is the same rope the check-in agent gets and the same
@@ -587,6 +706,10 @@ def ask(request):
         )
         result["grounded"] = False
         result["withheld"] = True
+        # The citations belonged to the answer that was just discarded. Left in
+        # place they would sit under the refusal as though the record had been
+        # consulted to produce it, which is the opposite of what happened.
+        result["sources"] = []
 
     return Response(result)
 
