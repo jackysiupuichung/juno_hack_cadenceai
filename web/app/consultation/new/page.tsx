@@ -54,14 +54,6 @@ function NewConsultationInner() {
 
   async function handleProcess() {
     if (!recorder.blob) return
-    // The backend keys the whole interval — plan, check-ins, brief — off a
-    // condition, so a consultation cannot be summarised without one. Caught
-    // here rather than at the API so the patient is told what to pick, not
-    // shown a 400.
-    if (conditionId === NO_CONDITION) {
-      setError("Choose a condition first — the follow-up plan is built around it.")
-      return
-    }
     setError(null)
     try {
       setPhase("transcribing")
@@ -78,7 +70,7 @@ function NewConsultationInner() {
       // visit just opened. What comes back is already a record, not a draft.
       setPhase("summarising")
       const visit = await api.summarise({
-        condition_id: conditionId,
+        condition_id: conditionId === NO_CONDITION ? undefined : conditionId,
         transcript,
         date,
         care_setting: careSetting.toLowerCase(),

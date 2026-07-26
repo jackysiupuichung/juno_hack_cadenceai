@@ -286,7 +286,7 @@ export const api = {
    * agenda for.
    */
   summarise: (input: {
-    condition_id: string
+    condition_id?: string
     transcript: string
     date?: string
     care_setting?: string
