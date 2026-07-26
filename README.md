@@ -1,10 +1,10 @@
 # Cadence
 
-**The patient-side ambient scribe that closes the loop between visits.**
+**An agentic care companion with consistent longitudinal memory. Patient-side, loop-closing.**
 
 A consultation is not an event. It is the start of an interval: "try this for six weeks, get the blood test, come back if it gets worse." Right now nothing spans that interval. The patient forgets half of what was said within minutes, the doctor forgets the patient by next week, and the next visit starts from zero.
 
-Cadence captures the visit for the patient, follows the plan through the weeks after with short voice check-ins, and walks the patient into the next appointment with a **next-visit brief**: what we agreed, what I did, what happened, what changed. The appointment starts at minute two, not minute zero.
+Cadence is built around one core idea: **consistent longitudinal memory**. It captures the visit with ambient voice AI, follows the plan through the weeks after with autonomous voice-agent check-ins, and writes every visit, check-in, symptom onset, and medication event into a single patient-owned record. Every downstream AI step reasons over that full context rather than a single transcript. The payoff is the **next-visit brief**: what we agreed, what I did, what happened, what changed. Not a summary of the last visit but a synthesis of the whole interval. The appointment starts at minute two, not minute zero.
 
 Built in 36 hours for the Juno x Anthropic "Build the Future of Healthcare" hackathon (London, July 2026).
 
@@ -26,10 +26,10 @@ The brief is the hero; the loop is the engine. It is not a summary of the last v
 
 | Piece | Role |
 | --- | --- |
-| **ElevenLabs Scribe** | Transcribes the recorded consultation. |
-| **ElevenLabs Agents** | Runs the voice check-in calls across the interval, briefed per patient (pace, hearing, what matters to them) by the backend. |
-| **Claude (Anthropic)** | Plain-language summary, commitment extraction, interval planning, the next-visit brief, and grounded ask-your-record Q&A. Every call returns validated JSON. |
-| **Supabase** | The patient-owned longitudinal record: visits, check-ins, briefs, events. Portable by construction; never written back to an EHR. |
+| **ElevenLabs Scribe** | Ambient capture: transcribes the recorded consultation. |
+| **ElevenLabs Agents** | Autonomous conversational voice agents run the check-in calls across the interval, context-engineered per patient before every call (pace, hearing, what matters to them, red-flag questions to ask) by the backend. |
+| **Claude (Anthropic)** | The caretaker LLM: plain-language summarisation, commitment extraction, interval planning, red-flag triage routing, brief synthesis, and retrieval-grounded ask-your-record Q&A with citations over the longitudinal memory. Every call is schema-validated structured output. |
+| **Supabase** (Postgres + pgvector) | The memory substrate: the patient-owned longitudinal record of visits, check-ins, briefs, and events. Portable by construction; never written back to an EHR. |
 | **Clinical knowledge base (CKS / NICE)** | Grounds the disease and medication context the interval plan draws on. |
 | **Django** (`backend/`) | Where every clinical decision lives. All prompts, schemas, red-flag triage, and safety boundaries are server-side Python; the browser composes no clinical text. |
 | **Next.js** (`web/`) | The patient app: record, understand, check in, and the brief rendered as the document it is. |
@@ -38,7 +38,11 @@ The brief is the hero; the loop is the engine. It is not a summary of the last v
 
 - **Documents and supports. Never diagnoses or prescribes.** Cadence summarises what was said, tracks what was agreed, and reports what happened. "The doctor said to reassess X in six weeks; here is how X went" is in scope. "You should change your dose" is not, and the Q&A layer refuses it explicitly.
 - **Patient-owned, patient-carried.** No account, no clinic sign-off. The record belongs to the patient and travels with them.
-- **Honest by design.** Statuses are never softened: not done reads as not done, and the brief states what the record does not cover.
+- **Honest by design.** Statuses are never softened: not done reads as not done, and the brief states what the record does not cover. Guardrails are architecture, not a disclaimer.
+
+## The vision
+
+Stack the loops and the longitudinal memory becomes a record of a life in the system: what was tried, what worked, what got missed. That record is the substrate a future reasoning layer sits on. We ship the loop; the memory compounds with every visit.
 
 ## Run it
 
