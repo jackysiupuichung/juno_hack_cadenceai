@@ -93,6 +93,10 @@ function NewConsultationInner() {
   if (phase !== "form") {
     return (
       <AppShell>
+        {/* A back button here matters more than most: this is exactly the
+            screen a slow or failed transcribe/summarise call leaves someone
+            staring at, with nothing else on it to tap. */}
+        <ScreenHeader title="New consultation" onBack={() => setPhase("form")} />
         <Content className="flex flex-1 flex-col items-center justify-center text-center">
           <div className="relative flex size-20 items-center justify-center rounded-full bg-primary/10">
             <span className="absolute inline-flex size-20 animate-ping rounded-full bg-primary/10" />

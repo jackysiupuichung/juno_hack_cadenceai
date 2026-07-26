@@ -4,7 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { ShieldCheck } from "lucide-react"
 import { useApp } from "@/lib/store"
-import { AppShell, Content } from "@/components/app-shell"
+import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { PrivacyNotice } from "@/components/privacy-notice"
@@ -34,6 +34,7 @@ export default function ConsentPage() {
 
   return (
     <AppShell>
+      <ScreenHeader title="" backHref="/onboarding" />
       <Content className="flex flex-col gap-6 pb-8">
         <div>
           <div className="flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground">

@@ -60,6 +60,7 @@ export default function ConsultationPage() {
   if (!appointment) {
     return (
       <AppShell>
+        <ScreenHeader title="Consultation" backHref="/home" />
         <div className="flex flex-1 items-center justify-center">
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
