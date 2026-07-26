@@ -15,6 +15,7 @@ import {
 import { useApp } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
+import { LoopSchematic } from "@/components/loop-schematic"
 
 const LOOP_STEPS = [
   {
@@ -70,7 +71,7 @@ export default function LandingPage() {
           nativeButton={false}
           render={<Link href="/onboarding" />}
         >
-          Sign in
+          Open Cadence
         </Button>
       </header>
 
@@ -156,10 +157,7 @@ export default function LandingPage() {
                   <step.icon className="size-6" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                    Step {i + 1}
-                  </p>
-                  <h3 className="mt-1 font-medium text-foreground">{step.title}</h3>
+                  <h3 className="font-medium text-foreground">{step.title}</h3>
                   <p className="mt-1.5 text-pretty text-sm text-muted-foreground">
                     {step.body}
                   </p>
@@ -168,6 +166,12 @@ export default function LandingPage() {
             </Reveal>
           ))}
         </div>
+
+        <Reveal delay={120}>
+          <div className="mt-16">
+            <LoopSchematic />
+          </div>
+        </Reveal>
       </section>
 
       {/* Trust */}

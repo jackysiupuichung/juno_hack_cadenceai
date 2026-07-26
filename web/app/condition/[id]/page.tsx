@@ -15,6 +15,7 @@ import {
   CalendarClock,
   MapPin,
   FileText,
+  PhoneCall,
 } from "lucide-react"
 import { appointmentsForCondition, isUpcoming, untilLabel, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
@@ -83,7 +84,8 @@ export default function ConditionDetailPage() {
     return (
       <AppShell>
         <ScreenHeader title="Condition" backHref="/home" />
-        <div className="flex flex-1 items-center justify-center">
+        <div role="status" className="flex flex-1 items-center justify-center">
+          <span className="sr-only">Loading</span>
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
       </AppShell>
@@ -139,12 +141,16 @@ export default function ConditionDetailPage() {
             onChange={(e) => setNameDraft(e.target.value)}
             placeholder="e.g. Thyroid"
             autoFocus
+            aria-invalid={!!renameError}
+            aria-describedby={renameError ? "rename-error" : undefined}
             onKeyDown={(e) => {
               if (e.key === "Enter") void handleRename()
             }}
           />
           {renameError && (
-            <p className="text-sm text-destructive">{renameError}</p>
+            <p id="rename-error" role="alert" className="text-sm text-destructive">
+              {renameError}
+            </p>
           )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRenameOpen(false)}>
@@ -205,15 +211,32 @@ export default function ConditionDetailPage() {
             appointment, and burying it under a scroll makes it the thing they
             forget to bring. */}
         {appts.length > 0 && (
-          <Button
-            size="lg"
-            className="w-full"
-            nativeButton={false}
-            render={<Link href={`/condition/${condition.id}/brief`} />}
-          >
-            <FileText className="size-4" />
-            {nextAppt ? "Brief for this appointment" : "Next-visit brief"}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button
+              size="lg"
+              className="w-full"
+              nativeButton={false}
+              render={<Link href={`/condition/${condition.id}/brief`} />}
+            >
+              <FileText className="size-4" />
+              {nextAppt ? "Brief for this appointment" : "Next-visit brief"}
+            </Button>
+            {/* The interval hub shows what's due; without this there was no
+                way to answer it from here — the overdue item was a fact the
+                patient could read but not act on. */}
+            {!isCompleted && (
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full"
+                nativeButton={false}
+                render={<Link href={`/condition/${condition.id}/check-in`} />}
+              >
+                <PhoneCall className="size-4" />
+                Check in now
+              </Button>
+            )}
+          </div>
         )}
 
         <section className="flex flex-col gap-3">
@@ -252,7 +275,7 @@ export default function ConditionDetailPage() {
                   <Link
                     key={a.id}
                     href={`/consultation/${a.id}`}
-                    className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
+                    className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/40 active:bg-muted/60"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -281,7 +304,6 @@ export default function ConditionDetailPage() {
           {isCompleted ? (
             <Button
               variant="outline"
-              size="lg"
               onClick={() => reopenCondition(condition.id)}
             >
               <RotateCcw className="size-4" />
@@ -290,7 +312,6 @@ export default function ConditionDetailPage() {
           ) : (
             <Button
               variant="outline"
-              size="lg"
               onClick={() => completeCondition(condition.id)}
             >
               <CheckCircle2 className="size-4" />
@@ -298,10 +319,12 @@ export default function ConditionDetailPage() {
             </Button>
           )}
 
+          {/* Deliberately quiet: deletion should never carry the same visual
+              weight as the actions the screen exists for. */}
           <Dialog>
             <DialogTrigger
               render={
-                <Button variant="destructive" size="lg">
+                <Button variant="ghost" size="sm" className="text-muted-foreground">
                   <Trash2 className="size-4" />
                   Delete condition
                 </Button>
@@ -336,7 +359,7 @@ export default function ConditionDetailPage() {
         <div className="sticky bottom-0 z-20 border-t border-border bg-background/90 px-4 py-3 backdrop-blur-md">
           <Button
             size="lg"
-            className="h-12 w-full"
+            className="w-full"
             nativeButton={false}
             render={<Link href={`/consultation/new?condition=${condition.id}`} />}
           >

@@ -18,7 +18,10 @@ const STORAGE_KEY = "consultation-companion:v1"
 const DEFAULT_DATA: AppData = {
   profile: null,
   consent: null,
-  settings: { remindersEnabled: false },
+  // On by default: a follow-up saved from a summary that never surfaces
+  // anywhere is a plan that quietly lapses, and no first-run user goes
+  // hunting for the toggle.
+  settings: { remindersEnabled: true },
   conditions: [],
   appointments: [],
   reminders: [],
@@ -108,6 +111,8 @@ interface AppContextValue {
   hydrated: boolean
   /** The server has answered. Only now is a missing record genuinely missing. */
   synced: boolean
+  /** Re-run the server sync — for screens that just wrote a record the cache hasn't seen. */
+  refresh: () => Promise<void>
   saveProfile: (profile: Profile) => void
   saveConsent: (consent: Consent) => void
   withdrawConsent: () => void
@@ -173,6 +178,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       data,
       hydrated,
       synced,
+      // On-demand re-sync. The mount-time sync has already run by the time a
+      // screen summarises a new visit, so that visit exists on the server and
+      // nowhere in this cache — the screen that created it must ask again
+      // before it can navigate to it.
+      refresh: async () => {
+        await syncFromServer(setData)
+        setSynced(true)
+      },
       saveProfile: (profile) => setData((d) => ({ ...d, profile })),
       saveConsent: (consent) => setData((d) => ({ ...d, consent })),
       withdrawConsent: () => setData((d) => ({ ...d, consent: null })),

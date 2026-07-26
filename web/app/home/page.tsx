@@ -8,6 +8,7 @@ import {
   Settings2,
   Bell,
   ChevronDown,
+  ChevronRight,
   Stethoscope,
   Mic,
   CalendarDays,
@@ -39,7 +40,7 @@ export default function HomePage() {
   if (!hydrated || !data.profile || !data.consent) {
     return (
       <AppShell>
-        <div className="flex flex-1 items-center justify-center">
+        <div role="status" className="flex flex-1 items-center justify-center">
           <span className="sr-only">Loading</span>
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
@@ -66,15 +67,42 @@ export default function HomePage() {
           <p className="text-xs text-muted-foreground">Welcome back</p>
           <h1 className="text-lg font-semibold leading-tight">{firstName}</h1>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Settings"
-          nativeButton={false}
-          render={<Link href="/settings" />}
-        >
-          <Settings2 className="size-5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {/* Calendar is reference material, so it lives up here; the badge
+              keeps the "something is coming" signal it carried in the old
+              bottom bar. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative"
+            aria-label={
+              upcoming.length > 0
+                ? `My calendar, ${upcoming.length} upcoming`
+                : "My calendar"
+            }
+            nativeButton={false}
+            render={<Link href="/calendar" />}
+          >
+            <CalendarDays className="size-5" />
+            {upcoming.length > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+              >
+                {upcoming.length}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Settings"
+            nativeButton={false}
+            render={<Link href="/settings" />}
+          >
+            <Settings2 className="size-5" />
+          </Button>
+        </div>
       </header>
 
       <Content className="flex flex-col gap-5 pb-28">
@@ -92,10 +120,16 @@ export default function HomePage() {
           <section className="flex flex-col gap-2">
             {upcoming.map((r) => {
               const condition = data.conditions.find((c) => c.id === r.conditionId)
+              // A reminder is only worth surfacing if tapping it goes somewhere:
+              // the brief is what the upcoming visit needs, so that's the target.
+              const href = r.conditionId
+                ? `/condition/${r.conditionId}/brief`
+                : "/calendar"
               return (
-                <div
+                <Link
                   key={r.id}
-                  className="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5"
+                  href={href}
+                  className="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5 transition-colors hover:bg-primary/10 active:bg-primary/15"
                 >
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
                     <Bell className="size-4.5" />
@@ -107,17 +141,25 @@ export default function HomePage() {
                     <p className="truncate text-xs text-muted-foreground">
                       {r.purpose || "Follow-up"} &middot; {formatShortDate(r.date)}
                     </p>
+                    <p className="mt-0.5 text-xs font-medium text-primary">
+                      {r.conditionId ? "View your brief" : "View in calendar"}
+                    </p>
                   </div>
-                </div>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </Link>
               )
             })}
           </section>
         )}
 
-        {/* Segmented tab control, plus a contextual add action */}
+        {/* Segmented view switch. Not marked up as tabs: real tabs need
+            arrow-key focus and panel wiring, and claiming the role without
+            them is worse for a screen reader than honest toggle buttons.
+            Recording lives in the sticky bar, so only conditions keep a
+            contextual add. */}
         <div className="flex items-center gap-2">
           <div
-            role="tablist"
+            role="group"
             aria-label="View"
             className="grid flex-1 grid-cols-2 gap-1 rounded-2xl bg-muted p-1"
           >
@@ -134,17 +176,6 @@ export default function HomePage() {
               Conditions
             </TabButton>
           </div>
-          {tab === "consultations" && consultations.length > 0 && (
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="Record a consultation"
-              nativeButton={false}
-              render={<Link href="/consultation/new" />}
-            >
-              <Plus className="size-4.5" />
-            </Button>
-          )}
           {tab === "conditions" && (active.length > 0 || completed.length > 0) && (
             <NewConditionDialog
               onCreated={(id) => router.push(`/condition/${id}`)}
@@ -254,22 +285,17 @@ export default function HomePage() {
         )}
       </Content>
 
-      {/* Persistent bottom nav — always My Calendar, regardless of active tab */}
+      {/* The persistent slot under the thumb belongs to the loop's primary
+          action — starting a capture — not to a read-only calendar. */}
       <div className="sticky bottom-0 z-20 border-t border-border bg-background/90 px-4 py-3 backdrop-blur-md">
         <Button
           size="lg"
-          variant="secondary"
-          className="h-12 w-full"
+          className="w-full"
           nativeButton={false}
-          render={<Link href="/calendar" />}
+          render={<Link href="/consultation/new" />}
         >
-          <CalendarDays className="size-4" />
-          My calendar
-          {upcoming.length > 0 && (
-            <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
-              {upcoming.length}
-            </span>
-          )}
+          <Mic className="size-4" />
+          Record a consultation
         </Button>
       </div>
     </AppShell>
@@ -288,11 +314,10 @@ function TabButton({
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+        "rounded-xl px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         active
           ? "bg-card text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground",

@@ -28,7 +28,7 @@ export function ConditionCard({
   return (
     <Link
       href={`/condition/${condition.id}`}
-      className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
+      className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/40 active:bg-muted/60"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -38,7 +38,7 @@ export function ConditionCard({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <FileText className="size-3.5" />
-            {appts.length} appointment{appts.length === 1 ? "" : "s"}
+            {appts.length} consultation{appts.length === 1 ? "" : "s"}
           </span>
           {/* A booked appointment outranks a reminder derived from a summary's
               follow-up timeframe: one is a date the patient has, the other is

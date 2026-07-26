@@ -45,7 +45,9 @@ function toISODate(y: number, m: number, d: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`
 }
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"]
+// Three-letter names: single letters give a screen reader "S S" for two
+// different days and force sighted users to count columns.
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 export default function CalendarPage() {
   const router = useRouter()
@@ -103,7 +105,8 @@ export default function CalendarPage() {
     return (
       <AppShell>
         <ScreenHeader title="My calendar" backHref="/home" />
-        <div className="flex flex-1 items-center justify-center">
+        <div role="status" className="flex flex-1 items-center justify-center">
+          <span className="sr-only">Loading</span>
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
       </AppShell>
@@ -127,6 +130,7 @@ export default function CalendarPage() {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ]
   const monthLabel = first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+  const monthName = first.toLocaleDateString("en-GB", { month: "long" })
 
   const agenda = selected
     ? (byDate.get(selected) ?? [])
@@ -151,24 +155,24 @@ export default function CalendarPage() {
                   type="button"
                   aria-label="Previous month"
                   onClick={() => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))}
-                  className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                  className="flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
                 >
                   <ChevronLeft className="size-4" />
                 </button>
-                <p className="text-sm font-semibold text-foreground">{monthLabel}</p>
+                <p className="text-sm font-semibold tabular-nums text-foreground">{monthLabel}</p>
                 <button
                   type="button"
                   aria-label="Next month"
                   onClick={() => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))}
-                  className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                  className="flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
                 >
                   <ChevronRight className="size-4" />
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-7 gap-y-1 text-center">
-                {WEEKDAYS.map((w, i) => (
-                  <span key={i} className="text-xs font-medium text-muted-foreground">
+              <div className="mt-3 grid grid-cols-7 gap-y-1 text-center tabular-nums">
+                {WEEKDAYS.map((w) => (
+                  <span key={w} className="text-xs font-medium text-muted-foreground">
                     {w}
                   </span>
                 ))}
@@ -184,7 +188,15 @@ export default function CalendarPage() {
                       key={iso}
                       type="button"
                       onClick={() => setSelected((s) => (s === iso ? null : iso))}
-                      className="flex items-center justify-center py-0.5"
+                      // The dot is colour-only and 4px; the label carries what
+                      // the dot means so it isn't lost to a screen reader.
+                      aria-label={`${day} ${monthName}, ${
+                        events.length === 0
+                          ? "no items"
+                          : `${events.length} item${events.length === 1 ? "" : "s"}`
+                      }${hasOverdue ? ", overdue" : ""}`}
+                      aria-pressed={isSelected}
+                      className="flex items-center justify-center py-1.5"
                     >
                       <span
                         className={cn(
@@ -213,7 +225,7 @@ export default function CalendarPage() {
             </section>
 
             <section className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold text-muted-foreground">
+              <h2 className="text-sm font-semibold tabular-nums text-muted-foreground">
                 {selected ? new Date(selected).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Upcoming"}
               </h2>
               {loading ? (
