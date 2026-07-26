@@ -49,7 +49,7 @@ function uid() {
  */
 async function syncFromServer(
   setData: React.Dispatch<React.SetStateAction<AppData>>,
-) {
+): Promise<void> {
   try {
     const conditions = await api.conditions()
 
@@ -104,7 +104,10 @@ function toAppointment(v: ApiVisit): Appointment {
 
 interface AppContextValue {
   data: AppData
+  /** The local cache has been read. Safe to render from. */
   hydrated: boolean
+  /** The server has answered. Only now is a missing record genuinely missing. */
+  synced: boolean
   saveProfile: (profile: Profile) => void
   saveConsent: (consent: Consent) => void
   withdrawConsent: () => void
@@ -131,6 +134,7 @@ const AppContext = React.createContext<AppContextValue | null>(null)
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = React.useState<AppData>(DEFAULT_DATA)
   const [hydrated, setHydrated] = React.useState(false)
+  const [synced, setSynced] = React.useState(false)
 
   React.useEffect(() => {
     const local = loadData()
@@ -146,7 +150,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Profile, consent and the reminders toggle stay local: they are settings
     // on a device, and pushing them to a server would mean building the auth
     // this product deliberately does not have.
-    void syncFromServer(setData)
+    // `synced` is not the same claim as `hydrated`. Hydrated means the local
+    // cache has been read; synced means the server has answered. A screen that
+    // redirects when it cannot find a record must wait for the second, because
+    // a condition seeded on another device — or minted since this browser last
+    // looked — is missing from the cache and present on the server, and acting
+    // on the gap in between throws the patient off a record that exists.
+    void syncFromServer(setData).finally(() => setSynced(true))
   }, [])
 
   React.useEffect(() => {
@@ -162,6 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return {
       data,
       hydrated,
+      synced,
       saveProfile: (profile) => setData((d) => ({ ...d, profile })),
       saveConsent: (consent) => setData((d) => ({ ...d, consent })),
       withdrawConsent: () => setData((d) => ({ ...d, consent: null })),
@@ -293,7 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setData(DEFAULT_DATA)
       },
     }
-  }, [data, hydrated])
+  }, [data, hydrated, synced])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

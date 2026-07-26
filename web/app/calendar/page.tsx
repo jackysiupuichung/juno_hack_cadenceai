@@ -18,6 +18,7 @@ import {
 import { useApp } from "@/lib/store"
 import type { Condition as LocalCondition } from "@/lib/types"
 import { api, type CadenceEvent } from "@/lib/api"
+import { formatDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 
@@ -246,7 +247,10 @@ export default function CalendarPage() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-foreground">{e.label}</p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {e.when} &middot; {e.conditionName}
+                            {/* `when` covers what happened; for a due date nothing
+                                has been recorded against it says "date not
+                                established", though the date is known. */}
+                            {`${e.due_at && !e.occurred_at ? `Due ${formatDate(e.due_at)}` : e.when} · ${e.conditionName}`}
                           </p>
                         </div>
                       </Link>

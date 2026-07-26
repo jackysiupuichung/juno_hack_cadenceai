@@ -45,7 +45,7 @@ const NO_CONDITION = "none"
 export default function ConsultationPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
-  const { data, hydrated, deleteAppointment, linkAppointment } = useApp()
+  const { data, synced, deleteAppointment, linkAppointment } = useApp()
 
   const appointment = data.appointments.find((a) => a.id === params.id)
   const condition = appointment?.conditionId
@@ -54,8 +54,11 @@ export default function ConsultationPage() {
   const activeConditions = data.conditions.filter((c) => c.status === "active")
 
   React.useEffect(() => {
-    if (hydrated && !appointment) router.replace("/home")
-  }, [hydrated, appointment, router])
+    // `synced`, not `hydrated` — a visit recorded elsewhere is missing from
+    // this browser's cache until the server answers, and redirecting before
+    // then drops the patient off a consultation that exists.
+    if (synced && !appointment) router.replace("/home")
+  }, [synced, appointment, router])
 
   if (!appointment) {
     return (

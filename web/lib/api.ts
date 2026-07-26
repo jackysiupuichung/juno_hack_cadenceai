@@ -222,6 +222,26 @@ export interface CadenceEvent {
   context_ids: string[]
 }
 
+/**
+ * A milestone the guideline expects, and where this interval sits on it.
+ *
+ * `status` is a window position and never a verdict — `past_expected` says
+ * today is beyond `expected_by_week`, which is a fact about dates rather than
+ * a claim about the treatment. All prose here is the guideline's own wording,
+ * and `if_not_met` arrives empty until the window has actually passed.
+ */
+export interface TrajectoryMarker {
+  id: string
+  marker: string
+  earliest_week: number | null
+  expected_by_week: number | null
+  expectation: string
+  status: "too_early" | "in_window" | "past_expected"
+  weeks_past_expected: number
+  if_not_met: string
+  source_id: string
+}
+
 export interface EventsResponse {
   today: string
   timeline: CadenceEvent[]
@@ -230,6 +250,10 @@ export interface EventsResponse {
   undated: CadenceEvent[]
   anchors: Record<string, string>
   fulfilled_count: number
+  /** Null before the first visit: there is no week 0 to count from. */
+  week: number | null
+  /** Empty when the condition has no disease context to measure against. */
+  trajectory: TrajectoryMarker[]
 }
 
 export interface CheckInContext {

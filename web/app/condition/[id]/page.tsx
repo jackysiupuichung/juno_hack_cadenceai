@@ -21,6 +21,7 @@ import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { StatusBadge } from "@/components/status-badge"
 import { LinkConsultationDialog } from "@/components/link-consultation-dialog"
+import { IntervalCalendar } from "@/components/interval-calendar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -37,7 +38,7 @@ export default function ConditionDetailPage() {
   const params = useParams<{ id: string }>()
   const {
     data,
-    hydrated,
+    synced,
     completeCondition,
     reopenCondition,
     deleteCondition,
@@ -46,9 +47,13 @@ export default function ConditionDetailPage() {
 
   const condition = data.conditions.find((c) => c.id === params.id)
 
+  // Waits for `synced`, not `hydrated`. A condition the server holds but this
+  // browser has never cached is absent for the moment between the local read
+  // and the server's answer, and redirecting in that window bounces the
+  // patient off a record that is about to arrive.
   React.useEffect(() => {
-    if (hydrated && !condition) router.replace("/home")
-  }, [hydrated, condition, router])
+    if (synced && !condition) router.replace("/home")
+  }, [synced, condition, router])
 
   const [renameOpen, setRenameOpen] = React.useState(false)
   const [nameDraft, setNameDraft] = React.useState("")
@@ -187,6 +192,13 @@ export default function ConditionDetailPage() {
             )}
           </section>
         )}
+
+        {/* What the plan put on the calendar, the interval's chronology, and
+            the expected course — directly above the brief that reports on it.
+            An overdue blood test read here is the same fact the brief will
+            state to the doctor; seeing it first gives the patient the chance
+            to say something about it before then. */}
+        <IntervalCalendar conditionId={condition.id} />
 
         {/* The hero. Placed above the consultation list rather than below it
             because the brief is what the patient came for on the day of an

@@ -196,6 +196,33 @@ class Command(BaseCommand):
         # cluster that assembles across two calls is invisible to anything that
         # only looks at the current one.
         context = load_context()
+
+        # --- What the guideline says is now due -------------------------------
+        # The visit endpoint derives these from the monitoring schedule when a
+        # consultation is recorded. Seeding writes the interval's history
+        # directly and so skips that path, which would leave the chronology
+        # with everything that happened and nothing that was *meant* to — no
+        # due date to be behind on, and an empty overdue list on a demo whose
+        # whole point is the blood test the patient never got round to.
+        scheduled = [
+            ev.to_row(
+                ev.Event(
+                    kind="test_taken",
+                    label=event.get("event", ""),
+                    due_at=visit_date + timedelta(weeks=int(event.get("interval_weeks", 0))),
+                    precision="week",
+                    source="scheduled",
+                    context_ids=(event.get("id", ""),),
+                    recorded_at=visit_date,
+                ),
+                condition_id=condition["id"],
+                visit_id=visit["id"],
+            )
+            for event in context.get("monitoring", [])
+            if event.get("trigger") == "treatment_start"
+        ]
+        if scheduled:
+            repo.create_events(scheduled)
         med_state = meds[0] if meds else None
         med_id = med_rows[0]["id"] if med_rows else None
         all_mentions: list[dict] = []
