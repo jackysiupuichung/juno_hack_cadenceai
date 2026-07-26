@@ -1387,14 +1387,50 @@ def checkin(request):
     )
 
 
+def _trajectory_out(fact) -> dict:
+    """A trajectory marker as the UI may state it.
+
+    Sends the window and the position in it, never a judgement about the
+    treatment. `status` is where today falls relative to two week numbers, and
+    the only prose carried is the guideline's own — `expectation` for what the
+    marker means, `if_not_met` for how the guideline itself phrases a window
+    that has passed. Both are text a clinician wrote; neither is generated
+    here, which is what keeps this the safe side of the CDS line.
+
+    `if_not_met` is withheld until the window has actually passed. Shown at
+    week 4 next to a milestone not due until week 8, a sentence like "no change
+    in symptoms by week 8" reads as a warning about something that is not yet
+    true.
+    """
+    event = fact.event
+    return {
+        "id": event.get("id", ""),
+        "marker": event.get("marker", ""),
+        "earliest_week": event.get("earliest_week"),
+        "expected_by_week": event.get("expected_by_week"),
+        "expectation": event.get("expectation", ""),
+        "status": fact.status,
+        "weeks_past_expected": fact.weeks_past_expected,
+        "if_not_met": (
+            event.get("if_not_met", "") if fact.status == "past_expected" else ""
+        ),
+        "source_id": event.get("source_id", ""),
+    }
+
+
 @api_view(["GET"])
 @auth.require_auth
 def events(request):
-    """The chronology: what happened when, and what is due.
+    """The chronology: what happened when, what is due, and how far along.
 
     The calendar's endpoint. Everything is returned in one call rather than
     paged, because an interval is weeks long and a chronology split across
     requests cannot be read in order.
+
+    Carries the trajectory alongside the dates. The two are the same question
+    asked of different clocks: monitoring is about appointments a patient can
+    be behind on, trajectory about how the body has responded, which nobody is
+    behind on. A screen showing only the first reads as a list of failures.
     """
     condition, error = _condition_or_404(request.query_params.get("condition_id"), request.patient_id)
     if error:
@@ -1427,6 +1463,18 @@ def events(request):
             "context_ids": list(event.context_ids),
         }
 
+    # Where the interval sits against the expected course. Absent before the
+    # first visit — there is no week 0 to count from. A missing or unreadable
+    # disease context (IntervalError also covers a condition with no
+    # disease_context_id) costs the trajectory and nothing else: the dates
+    # above come from the event table and are still correct without it, so
+    # this degrades to the calendar rather than failing the request the
+    # calendar depends on.
+    try:
+        facts, _, _ = _interval_facts(condition)
+    except IntervalError:
+        facts = None
+
     return Response(
         {
             "today": today.isoformat(),
@@ -1436,6 +1484,8 @@ def events(request):
             "undated": [out(e) for e in outstanding if not e.is_dated and not e.is_scheduled],
             "anchors": {k: v.isoformat() for k, v in ev.anchors(parsed).items()},
             "fulfilled_count": len(fulfilled),
+            "week": facts.week if facts else None,
+            "trajectory": [_trajectory_out(t) for t in facts.trajectory] if facts else [],
         }
     )
 
