@@ -14,7 +14,7 @@ export function LoopSchematic() {
           className="block h-auto w-full min-w-[1000px] lg:min-w-0"
           viewBox="0 0 1440 736"
           role="img"
-          aria-label="The caretaker loop: a consultation grounded in NICE and CKS becomes a patient-owned record, a plan, and voice check-ins across the gap between visits — red flags return early, everything else loops back until the brief opens visit two."
+          aria-label="The caretaker loop: a consultation grounded in a clinical knowledge base (CKS / NICE) becomes a patient-owned record, a plan, and voice check-ins across the gap between visits. Red flags return early; everything else loops back until the brief opens visit two."
         >
           <defs>
             <marker id="ls-m-line" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
@@ -100,13 +100,13 @@ export function LoopSchematic() {
             at interval end
           </text>
 
-          {/* medical knowledge base */}
+          {/* medical knowledge base. A plain label, not the NICE wordmark:
+              this node is our grounding source, not their brand. */}
           <g className="ls-node" style={d(".08s")}>
-            <title>Medical knowledge base — NICE Clinical Knowledge Summaries ground every input</title>
+            <title>Knowledge base (CKS / NICE) grounds every input</title>
             <rect className="ls-box" x="24" y="98" width="150" height="64" rx="14" />
-            <rect x="53" y="120" width="46" height="21" rx="3" fill="var(--foreground)" />
-            <text x="76" y="135" textAnchor="middle" fontSize="12" fontWeight="700" fill="#ffffff" letterSpacing=".02em">NICE</text>
-            <text x="108" y="135.5" fontSize="13" fontWeight="700" fill="var(--foreground)" letterSpacing=".02em">CKS</text>
+            <text className="ls-lab" x="99" y="126" textAnchor="middle" fontSize="11.5">KNOWLEDGE BASE</text>
+            <text className="ls-sub" x="99" y="145" textAnchor="middle">CKS / NICE</text>
           </g>
 
           {/* inputs */}
@@ -118,12 +118,12 @@ export function LoopSchematic() {
             <text x="240" y="276.5" textAnchor="middle" fontSize="11" fill="var(--primary)">∞</text>
           </g>
           <g className="ls-node" style={d(".2s")}>
-            <title>Condition primer from NICE · CKS</title>
+            <title>Condition primer from the knowledge base (CKS / NICE)</title>
             <rect className="ls-box" x="90" y="344" width="150" height="52" rx="14" />
             <text className="ls-lab" x="165" y="374" textAnchor="middle">DISEASE</text>
           </g>
           <g className="ls-node" style={d(".26s")}>
-            <title>Medication reference from NICE · CKS</title>
+            <title>Medication reference from the knowledge base (CKS / NICE)</title>
             <rect className="ls-box" x="90" y="416" width="150" height="52" rx="14" />
             <text className="ls-lab" x="165" y="446" textAnchor="middle">DRUG</text>
             <circle cx="240" cy="416" r="10" fill="var(--card)" stroke="var(--border)" strokeWidth="1.5" />
