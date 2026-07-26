@@ -44,7 +44,7 @@
           "name": { "type": "string" },
           "dosage": {
             "type": "string",
-            "description": "Exactly as stated. If unclear or inaudible, use \"unclear — please confirm with your doctor\"."
+            "description": "Exactly as stated. \"\" if unclear or inaudible — omitted rather than guessed or flagged."
           },
           "frequency": { "type": "string" },
           "duration": { "type": "string" },
