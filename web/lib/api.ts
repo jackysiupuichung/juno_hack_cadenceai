@@ -35,6 +35,17 @@ export class ApiError extends Error {
   }
 }
 
+// The signed-in patient's token, held in module scope rather than threaded
+// through every call. The store sets this once, on load and on sign-in/out;
+// every request after that just picks up whatever is current.
+let authToken: string | null = null
+
+/** Called by the store: on load (from localStorage), after sign-up/sign-in,
+ * and on log-out (with null). */
+function setAuthToken(token: string | null) {
+  authToken = token
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
@@ -44,6 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...(init?.body instanceof FormData
           ? {}
           : { "Content-Type": "application/json" }),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...init?.headers,
       },
     })
@@ -273,6 +285,19 @@ export interface AskResponse {
   withheld?: boolean
 }
 
+/** The signed-in patient's own account. See backend/loop/auth.py. */
+export interface Account {
+  id: string
+  /** The login handle as well as the display name. */
+  name: string
+  date_of_birth: string | null
+}
+
+export interface AuthResponse {
+  token: string
+  patient: Account
+}
+
 export interface CheckInContext {
   week: number
   visit_date: string
@@ -293,6 +318,17 @@ export interface CheckInContext {
 // --- Endpoints ---------------------------------------------------------------
 
 export const api = {
+  setAuthToken,
+
+  signUp: (input: { name: string; password: string; date_of_birth: string }) =>
+    post<AuthResponse>("auth/signup", input),
+
+  signIn: (input: { name: string; password: string }) =>
+    post<AuthResponse>("auth/login", input),
+
+  /** Restores a session on a new device, or after local storage is cleared. */
+  me: () => get<Account>("auth/me"),
+
   conditions: () => get<Condition[]>("conditions"),
 
   createCondition: (name: string) => post<Condition>("conditions", { name }),
@@ -431,4 +467,11 @@ export const api = {
   /** The calendar's endpoint — one condition's whole chronology in one call. */
   events: (conditionId: string) =>
     get<EventsResponse>(`events?condition_id=${conditionId}`),
+
+  /**
+   * The "Delete my data" control. Cascades through every condition, visit,
+   * check-in, and brief for this patient — the real erasure, not a local
+   * cache clear.
+   */
+  reset: () => request<void>("reset", { method: "POST" }),
 }

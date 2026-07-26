@@ -126,6 +126,65 @@
   animation: fade-up 640ms var(--ease-out) forwards;
 }
 
+/* Glassmorphism surfaces — translucent, blurred, theme-aware via color-mix
+   against the existing card/foreground tokens rather than hardcoded values. */
+.glass {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 25%, transparent),
+    0 12px 32px -12px color-mix(in oklch, var(--foreground) 22%, transparent);
+}
+
+.glass-subtle {
+  background: color-mix(in oklch, var(--card) 40%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+.glass-nav {
+  background: color-mix(in oklch, var(--background) 65%, transparent);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+/* Same material as .glass-nav, for bars anchored to the bottom of the
+   screen instead of the top — the border belongs on the opposite edge. */
+.glass-nav-bottom {
+  background: color-mix(in oklch, var(--background) 65%, transparent);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-subtle,
+  .glass-nav,
+  .glass-nav-bottom {
+    background: var(--card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@keyframes blob-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, 40px) scale(1.08); }
+}
+@keyframes blob-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-40px, 20px) scale(1.1); }
+}
+@keyframes blob-float-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, -30px) scale(1.05); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal {
     opacity: 1;

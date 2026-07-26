@@ -65,6 +65,7 @@ dependencies = [
     { name = "gunicorn" },
     { name = "httpx" },
     { name = "openai" },
+    { name = "pyjwt" },
     { name = "python-dotenv" },
     { name = "supabase" },
 ]
@@ -79,6 +80,7 @@ requires-dist = [
     { name = "gunicorn", specifier = ">=26.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai", specifier = ">=2.48.0" },
+    { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "supabase", specifier = ">=2.31.0" },
 ]

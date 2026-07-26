@@ -2,9 +2,9 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ShieldCheck } from "lucide-react"
 import { useApp } from "@/lib/store"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
+import { Wordmark } from "@/components/logo"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { PrivacyNotice } from "@/components/privacy-notice"
@@ -37,9 +37,7 @@ export default function ConsentPage() {
       <ScreenHeader title="" backHref="/onboarding" />
       <Content className="flex flex-col gap-6 pb-8">
         <div>
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
-            <ShieldCheck className="size-6" />
-          </div>
+          <Wordmark iconSize={32} className="[&_span]:text-xl" />
           <h1 className="mt-5 text-2xl font-semibold tracking-tight text-balance">
             Your privacy
           </h1>

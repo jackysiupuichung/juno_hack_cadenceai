@@ -6,17 +6,17 @@ import type {
   Appointment,
   Condition,
   Consent,
-  Profile,
   Reminder,
   Settings,
   Summary,
 } from "@/lib/types"
-import { type TimelineEvent, type Visit as ApiVisit, api } from "@/lib/api"
+import { type Account, type TimelineEvent, type Visit as ApiVisit, api } from "@/lib/api"
 
 const STORAGE_KEY = "consultation-companion:v1"
 
 const DEFAULT_DATA: AppData = {
   profile: null,
+  authToken: null,
   consent: null,
   // On by default: a follow-up saved from a summary that never surfaces
   // anywhere is a plan that quietly lapses, and no first-run user goes
@@ -25,6 +25,14 @@ const DEFAULT_DATA: AppData = {
   conditions: [],
   appointments: [],
   reminders: [],
+}
+
+/** An account response in the shape the local profile already renders. */
+function toProfile(account: Account, fallbackDateOfBirth = "") {
+  return {
+    name: account.name,
+    dateOfBirth: account.date_of_birth ?? fallbackDateOfBirth,
+  }
 }
 
 function loadData(): AppData {
@@ -111,11 +119,12 @@ interface AppContextValue {
   hydrated: boolean
   /** The server has answered. Only now is a missing record genuinely missing. */
   synced: boolean
-  /** Re-run the server sync — for screens that just wrote a record the cache hasn't seen. */
-  refresh: () => Promise<void>
-  saveProfile: (profile: Profile) => void
+  signUp: (input: { name: string; password: string; dateOfBirth: string }) => Promise<void>
+  signIn: (input: { name: string; password: string }) => Promise<void>
   saveConsent: (consent: Consent) => void
   withdrawConsent: () => void
+  logOut: () => void
+  deleteAllData: () => Promise<void>
   setReminders: (enabled: boolean) => void
   addCondition: (name: string) => Promise<Condition>
   renameCondition: (id: string, name: string) => Promise<void>
@@ -131,7 +140,6 @@ interface AppContextValue {
   deleteAppointment: (id: string) => void
   addReminder: (r: Omit<Reminder, "id">) => void
   deleteReminder: (id: string) => void
-  clearAll: () => void
 }
 
 const AppContext = React.createContext<AppContextValue | null>(null)
@@ -143,6 +151,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     const local = loadData()
+    api.setAuthToken(local.authToken)
     setData(local)
     setHydrated(true)
 
@@ -150,18 +159,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // merged in after the local read rather than instead of it so the app
     // renders immediately from cache and corrects itself a moment later —
     // and so a backend that is down degrades to the last known record rather
-    // than to an empty one.
+    // than to an empty one. Skipped with no token: every request would just
+    // 401, and there is nothing to merge in for a session that hasn't signed
+    // in yet.
     //
-    // Profile, consent and the reminders toggle stay local: they are settings
-    // on a device, and pushing them to a server would mean building the auth
-    // this product deliberately does not have.
+    // Consent and the reminders toggle stay local — device settings, not
+    // part of the account.
+    //
     // `synced` is not the same claim as `hydrated`. Hydrated means the local
-    // cache has been read; synced means the server has answered. A screen that
-    // redirects when it cannot find a record must wait for the second, because
-    // a condition seeded on another device — or minted since this browser last
-    // looked — is missing from the cache and present on the server, and acting
-    // on the gap in between throws the patient off a record that exists.
-    void syncFromServer(setData).finally(() => setSynced(true))
+    // cache has been read; synced means the server has answered — or, for a
+    // session with no account signed in, that there was nothing to ask. A
+    // screen that redirects when it cannot find a record must wait for the
+    // second, because a condition seeded on another device — or minted since
+    // this browser last looked — is missing from the cache and present on
+    // the server, and acting on the gap in between throws the patient off a
+    // record that exists.
+    if (local.authToken) {
+      void syncFromServer(setData).finally(() => setSynced(true))
+    } else {
+      setSynced(true)
+    }
   }, [])
 
   React.useEffect(() => {
@@ -178,17 +195,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       data,
       hydrated,
       synced,
-      // On-demand re-sync. The mount-time sync has already run by the time a
-      // screen summarises a new visit, so that visit exists on the server and
-      // nowhere in this cache — the screen that created it must ask again
-      // before it can navigate to it.
-      refresh: async () => {
+      // Creates the real account the rest of the record hangs off. Resets to
+      // DEFAULT_DATA first (not just profile/token) so a second account
+      // created in the same browser never starts with the previous one's
+      // cached conditions still sitting in state.
+      signUp: async ({ name, password, dateOfBirth }) => {
+        const { token, patient } = await api.signUp({
+          name,
+          password,
+          date_of_birth: dateOfBirth,
+        })
+        api.setAuthToken(token)
+        setData(() => ({
+          ...DEFAULT_DATA,
+          authToken: token,
+          profile: toProfile(patient, dateOfBirth),
+        }))
         await syncFromServer(setData)
-        setSynced(true)
       },
-      saveProfile: (profile) => setData((d) => ({ ...d, profile })),
+      // Same reset-then-repopulate shape as signUp — this is the flow that
+      // makes logging back in actually show the account's own data again,
+      // rather than whatever the last session on this device happened to be.
+      signIn: async ({ name, password }) => {
+        const { token, patient } = await api.signIn({ name, password })
+        api.setAuthToken(token)
+        setData(() => ({
+          ...DEFAULT_DATA,
+          authToken: token,
+          profile: toProfile(patient),
+        }))
+        await syncFromServer(setData)
+      },
       saveConsent: (consent) => setData((d) => ({ ...d, consent })),
+      // Stops health-data processing without touching what's already on
+      // record. Distinct from deletion: this is "don't process going
+      // forward", not "erase what happened".
       withdrawConsent: () => setData((d) => ({ ...d, consent: null })),
+      // Signs this device out. The account and its data stay on the server;
+      // signing back in via /signin restores them.
+      logOut: () => {
+        api.setAuthToken(null)
+        setData((d) => ({ ...d, authToken: null, profile: null, consent: null }))
+      },
       setReminders: (enabled) =>
         setData((d) => ({ ...d, settings: { ...d.settings, remindersEnabled: enabled } })),
       // The id has to come from the server. Everything the interval is made
@@ -308,7 +356,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })),
       deleteReminder: (id) =>
         setData((d) => ({ ...d, reminders: d.reminders.filter((r) => r.id !== id) })),
-      clearAll: () => {
+      // The real erasure: the backend cascade first, so a failed request
+      // leaves the record intact rather than clearing the device's view of
+      // data that was never actually deleted. The account row itself is part
+      // of that cascade, so the username is free to sign up again afterwards.
+      deleteAllData: async () => {
+        await api.reset()
+        api.setAuthToken(null)
         try {
           window.localStorage.removeItem(STORAGE_KEY)
         } catch {

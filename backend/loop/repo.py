@@ -33,6 +33,36 @@ def update_patient_name(patient_id: str, name: str) -> dict:
     return sb.table("patients").update({"name": name}).eq("id", patient_id).execute().data[0]
 
 
+def get_patient(patient_id: str) -> dict | None:
+    sb = get_supabase()
+    rows = sb.table("patients").select("*").eq("id", patient_id).execute().data
+    return rows[0] if rows else None
+
+
+def get_patient_by_username(username: str) -> dict | None:
+    """The account whose name (the login handle) matches, if any.
+
+    "name" doubles as the username — see supabase/migrations/
+    20260726110500_patient_username_login.sql — rather than a separate
+    column, so an account is just name + date_of_birth + password_hash.
+    """
+    sb = get_supabase()
+    rows = sb.table("patients").select("*").eq("name", username).execute().data
+    return rows[0] if rows else None
+
+
+def create_patient_account(
+    *, name: str, password_hash: str, date_of_birth: str | None
+) -> dict:
+    sb = get_supabase()
+    row = {
+        "name": name,
+        "password_hash": password_hash,
+        "date_of_birth": date_of_birth,
+    }
+    return sb.table("patients").insert(row).execute().data[0]
+
+
 def list_conditions(patient_id: str) -> list[dict]:
     sb = get_supabase()
     return (

@@ -2,13 +2,22 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ShieldCheck, Bell, Trash2, FileText, RotateCcw } from "lucide-react"
+import {
+  ShieldCheck,
+  ShieldOff,
+  Bell,
+  Trash2,
+  FileText,
+  LogOut,
+  Loader2,
+  ChevronDown,
+} from "lucide-react"
 import { useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
+import { cn } from "@/lib/utils"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { PrivacyNotice } from "@/components/privacy-notice"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
@@ -21,23 +30,40 @@ import {
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { data, hydrated, setReminders, clearAll } = useApp()
-  // clearAll() (device reset, withdraw consent) drops the profile, which would
-  // otherwise trip the guard below and redirect to /onboarding — racing
-  // whatever destination the button that cleared it already chose.
-  const leavingRef = React.useRef(false)
+  const { data, hydrated, setReminders, logOut, withdrawConsent, deleteAllData } = useApp()
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleteError, setDeleteError] = React.useState<string | null>(null)
+  const [showConsentDetail, setShowConsentDetail] = React.useState(false)
+  // Log out and withdraw-consent each clear a field this guard watches, then
+  // navigate somewhere other than /onboarding themselves. Without this, the
+  // guard's own redirect can fire in the same render pass and win the race,
+  // overriding the destination the button actually asked for.
+  const skipGuardRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (!hydrated || leavingRef.current) return
+    if (!hydrated) return
+    if (skipGuardRef.current) return
     if (!data.profile || !data.consent) router.replace("/onboarding")
   }, [hydrated, data.profile, data.consent, router])
+
+  async function handleDelete() {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteAllData()
+      router.replace("/onboarding")
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Could not delete your data.",
+      )
+      setDeleting(false)
+    }
+  }
 
   if (!hydrated || !data.profile) {
     return (
       <AppShell>
-        <ScreenHeader title="Settings" backHref="/home" />
-        <div role="status" className="flex flex-1 items-center justify-center">
-          <span className="sr-only">Loading</span>
+        <div className="flex flex-1 items-center justify-center">
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
       </AppShell>
@@ -53,7 +79,7 @@ export default function SettingsPage() {
           <h2 className="text-sm font-semibold text-muted-foreground">Your profile</h2>
           <div className="rounded-2xl border border-border bg-card p-4 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Name</span>
+              <span className="text-muted-foreground">Username</span>
               <span className="font-medium text-foreground">{data.profile.name}</span>
             </div>
             <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
@@ -102,7 +128,20 @@ export default function SettingsPage() {
               .
             </p>
           )}
-          <PrivacyNotice />
+          <button
+            type="button"
+            onClick={() => setShowConsentDetail((v) => !v)}
+            className="flex items-center gap-1.5 self-start text-sm font-medium text-primary"
+          >
+            {showConsentDetail ? "Hide details" : "Show Consent & data"}
+            <ChevronDown
+              className={cn(
+                "size-3.5 transition-transform",
+                showConsentDetail && "rotate-180",
+              )}
+            />
+          </button>
+          {showConsentDetail && <PrivacyNotice />}
           <Dialog>
             <DialogTrigger
               render={
@@ -123,94 +162,131 @@ export default function SettingsPage() {
                 <li>Recordings are transcribed and summarised, then the audio is discarded.</li>
                 <li>Your profile, appointments, and summaries are stored only on this device.</li>
                 <li>Health-data processing relies on the consent you provided.</li>
-                <li>You can withdraw consent and erase everything at any time.</li>
+                <li>You can withdraw consent or delete everything at any time, below.</li>
               </ul>
             </DialogContent>
           </Dialog>
         </section>
 
-        {/* Not "log out": there is no account, and clearAll() wipes the local
-            record for good. The label has to say what the button does. */}
         <section className="flex flex-col gap-3 border-t border-border pt-5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-            <RotateCcw className="size-4" />
-            Reset this device
-          </h2>
-          <p className="text-sm text-muted-foreground text-pretty">
-            Removes your profile, consent and data from this device. There is
-            no account, so nothing is kept anywhere else.
-          </p>
-          <Dialog>
-            <DialogTrigger
-              render={
-                <Button variant="outline" className="self-start">
-                  <RotateCcw className="size-4" />
-                  Reset this device
-                </Button>
-              }
-            />
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Reset this device?</DialogTitle>
-                <DialogDescription>
-                  This removes your profile, consent and all health data stored
-                  on this device. This cannot be undone.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex justify-end">
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    leavingRef.current = true
-                    clearAll()
-                    router.replace("/")
-                  }}
-                >
-                  Reset and erase
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </section>
+          <h2 className="text-sm font-semibold text-muted-foreground">Account & data</h2>
 
-        <section className="flex flex-col gap-3 border-t border-border pt-5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-destructive">
-            <Trash2 className="size-4" />
-            Withdraw & erase
-          </h2>
-          <p className="text-sm text-muted-foreground text-pretty">
-            Withdrawing consent removes all health data stored on this device.
-          </p>
-          <Dialog>
-            <DialogTrigger
-              render={
-                <Button variant="destructive" className="self-start">
-                  Withdraw consent & delete my data
-                </Button>
-              }
-            />
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Withdraw consent and erase everything?</DialogTitle>
-                <DialogDescription>
-                  This permanently deletes your profile, conditions, appointments,
-                  summaries, and reminders from this device. This cannot be undone.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex justify-end">
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    leavingRef.current = true
-                    clearAll()
-                    router.replace("/onboarding")
-                  }}
-                >
-                  Erase everything
-                </Button>
+          <div className="glass-subtle flex items-center justify-between gap-3 rounded-2xl p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <LogOut className="size-4" />
               </div>
-            </DialogContent>
-          </Dialog>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Log out</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Sign out of this device. Your record is kept.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                skipGuardRef.current = true
+                logOut()
+                router.replace("/")
+              }}
+            >
+              Log out
+            </Button>
+          </div>
+
+          <div className="glass-subtle flex items-center justify-between gap-3 rounded-2xl p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning-foreground">
+                <ShieldOff className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Withdraw consent</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Stop health-data processing. Nothing is deleted.
+                </p>
+              </div>
+            </div>
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button variant="outline" size="sm" className="shrink-0">
+                    Withdraw
+                  </Button>
+                }
+              />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Withdraw consent?</DialogTitle>
+                  <DialogDescription>
+                    Cadence will stop processing new health data. Your existing
+                    profile, conditions, and consultations are kept, and you can
+                    give consent again at any time. Nothing is deleted.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      skipGuardRef.current = true
+                      withdrawConsent()
+                      router.replace("/consent")
+                    }}
+                  >
+                    Withdraw consent
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="glass-subtle flex items-center justify-between gap-3 rounded-2xl p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+                <Trash2 className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Delete my data</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Permanently erase your entire record.
+                </p>
+              </div>
+            </div>
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button variant="destructive" size="sm" className="shrink-0">
+                    Delete
+                  </Button>
+                }
+              />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete everything?</DialogTitle>
+                  <DialogDescription>
+                    This permanently removes your profile, conditions,
+                    consultations, summaries, and reminders. There is no way to
+                    undo this.
+                  </DialogDescription>
+                </DialogHeader>
+                {deleteError && (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                )}
+                <div className="flex justify-end">
+                  <Button
+                    variant="destructive"
+                    disabled={deleting}
+                    onClick={handleDelete}
+                  >
+                    {deleting && <Loader2 className="size-4 animate-spin" />}
+                    Delete everything
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </section>
       </Content>
     </AppShell>

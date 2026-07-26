@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ChevronLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Wordmark } from "@/components/logo"
 
 export function AppShell({
   children,
@@ -51,10 +52,11 @@ export function ScreenHeader({
   return (
     <header
       className={cn(
-        "z-20 flex items-center gap-2 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md",
+        "glass-nav z-20 flex items-center gap-3 px-4 py-3",
         sticky && "sticky top-0",
       )}
     >
+      <Wordmark showText={false} iconSize={22} className="shrink-0" />
       {showBack && (
         <Button
           variant="ghost"

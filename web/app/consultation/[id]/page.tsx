@@ -11,20 +11,18 @@ import {
   HeartPulse,
   Leaf,
   MapPin,
-  MessageCircleQuestion,
   Pill,
-  Plus,
   Smile,
   Stethoscope,
   Trash2,
   User,
+  FileText,
 } from "lucide-react"
 import { isUpcoming, untilLabel, useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { SummaryCard } from "@/components/summary-card"
 import { AddReminderDialog } from "@/components/add-reminder-dialog"
-import { NewConditionDialog } from "@/components/new-condition-dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -48,7 +46,7 @@ const NO_CONDITION = "none"
 export default function ConsultationPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
-  const { data, synced, deleteAppointment, linkAppointment } = useApp()
+  const { data, hydrated, deleteAppointment, linkAppointment } = useApp()
 
   const appointment = data.appointments.find((a) => a.id === params.id)
   const condition = appointment?.conditionId
@@ -57,16 +55,12 @@ export default function ConsultationPage() {
   const activeConditions = data.conditions.filter((c) => c.status === "active")
 
   React.useEffect(() => {
-    // `synced`, not `hydrated` — a visit recorded elsewhere is missing from
-    // this browser's cache until the server answers, and redirecting before
-    // then drops the patient off a consultation that exists.
-    if (synced && !appointment) router.replace("/home")
-  }, [synced, appointment, router])
+    if (hydrated && !appointment) router.replace("/home")
+  }, [hydrated, appointment, router])
 
   if (!appointment) {
     return (
       <AppShell>
-        <ScreenHeader title="Consultation" backHref="/home" />
         <div className="flex flex-1 items-center justify-center">
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
@@ -80,16 +74,10 @@ export default function ConsultationPage() {
 
   return (
     <AppShell>
-      {/* Back to where this visit lives: its condition's timeline when it is
-          linked, home when it is not. */}
       <ScreenHeader
         title="Consultation"
         subtitle={condition ? `${condition.name} · ${formatDate(appointment.date)}` : formatDate(appointment.date)}
-        backHref={
-          appointment.conditionId
-            ? `/condition/${appointment.conditionId}`
-            : "/home"
-        }
+        backHref="/home"
       />
 
       <Content className="flex flex-col gap-4 pb-10">
@@ -155,21 +143,6 @@ export default function ConsultationPage() {
               ? "This consultation appears under the linked condition."
               : "Attach this consultation to a condition to keep related visits together."}
           </p>
-          {/* Record-first must not dead-end: a visit recorded before its
-              condition existed can mint one here and link itself to it. */}
-          <NewConditionDialog
-            onCreated={(id) => linkAppointment(appointment.id, id)}
-            trigger={
-              <Button
-                variant="ghost"
-                size="sm"
-                className="self-start text-muted-foreground"
-              >
-                <Plus className="size-4" />
-                New condition
-              </Button>
-            }
-          />
         </section>
 
         {!s ? (
@@ -195,6 +168,23 @@ export default function ConsultationPage() {
           </div>
         ) : (
           <>
+            {s.red_flags.length > 0 && (
+              <SummaryCard
+                tone="warning"
+                icon={<AlertTriangle />}
+                title="Warning signs: seek help if these happen"
+              >
+                <ul className="flex flex-col gap-1.5">
+                  {s.red_flags.map((f, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-warning-foreground/70" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SummaryCard>
+            )}
+
             {s.doctor_diagnosis && (
               <SummaryCard icon={<Stethoscope />} title="Diagnosis">
                 <p>{s.doctor_diagnosis}</p>
@@ -210,23 +200,6 @@ export default function ConsultationPage() {
             {s.doctor_advice && (
               <SummaryCard icon={<HeartPulse />} title="Doctor's advice">
                 <p>{s.doctor_advice}</p>
-              </SummaryCard>
-            )}
-
-            {s.red_flags.length > 0 && (
-              <SummaryCard
-                tone="warning"
-                icon={<AlertTriangle />}
-                title="What to look out for — seek help if these happen"
-              >
-                <ul className="flex flex-col gap-1.5">
-                  {s.red_flags.map((f, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-warning-foreground/70" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
               </SummaryCard>
             )}
 
@@ -313,20 +286,6 @@ export default function ConsultationPage() {
             </Button>
           )}
 
-          {/* Only when there is a summary to ask about: an unprocessed visit
-              has no record behind the answers. */}
-          {s && (
-            <Button
-              variant="outline"
-              size="lg"
-              nativeButton={false}
-              render={<Link href={`/consultation/${appointment.id}/ask`} />}
-            >
-              <MessageCircleQuestion className="size-4" />
-              Ask about this visit
-            </Button>
-          )}
-
           <Dialog>
             <DialogTrigger
               render={
@@ -358,6 +317,29 @@ export default function ConsultationPage() {
             </DialogContent>
           </Dialog>
 
+          {appointment.transcript && (
+            <Dialog>
+              <DialogTrigger
+                render={
+                  <Button variant="ghost" size="sm" className="text-muted-foreground">
+                    <FileText className="size-4" />
+                    View transcript
+                  </Button>
+                }
+              />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Transcript</DialogTitle>
+                  <DialogDescription>
+                    Automatically generated from your recording.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-muted/60 p-3 text-sm leading-relaxed text-foreground">
+                  {appointment.transcript}
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </section>
       </Content>
     </AppShell>
