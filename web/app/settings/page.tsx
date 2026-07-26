@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ShieldCheck, Bell, Trash2, FileText, LogOut } from "lucide-react"
+import { ShieldCheck, Bell, Trash2, FileText, RotateCcw } from "lucide-react"
 import { useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
@@ -22,7 +22,7 @@ import {
 export default function SettingsPage() {
   const router = useRouter()
   const { data, hydrated, setReminders, clearAll } = useApp()
-  // clearAll() (log out, withdraw consent) drops the profile, which would
+  // clearAll() (device reset, withdraw consent) drops the profile, which would
   // otherwise trip the guard below and redirect to /onboarding — racing
   // whatever destination the button that cleared it already chose.
   const leavingRef = React.useRef(false)
@@ -36,7 +36,8 @@ export default function SettingsPage() {
     return (
       <AppShell>
         <ScreenHeader title="Settings" backHref="/home" />
-        <div className="flex flex-1 items-center justify-center">
+        <div role="status" className="flex flex-1 items-center justify-center">
+          <span className="sr-only">Loading</span>
           <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         </div>
       </AppShell>
@@ -128,27 +129,48 @@ export default function SettingsPage() {
           </Dialog>
         </section>
 
+        {/* Not "log out": there is no account, and clearAll() wipes the local
+            record for good. The label has to say what the button does. */}
         <section className="flex flex-col gap-3 border-t border-border pt-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-            <LogOut className="size-4" />
-            Log out
+            <RotateCcw className="size-4" />
+            Reset this device
           </h2>
           <p className="text-sm text-muted-foreground text-pretty">
-            Signs you out of Cadence on this device. Your health record stays
-            safe — you can sign back in any time.
+            Removes your profile, consent and data from this device. There is
+            no account, so nothing is kept anywhere else.
           </p>
-          <Button
-            variant="outline"
-            className="self-start"
-            onClick={() => {
-              leavingRef.current = true
-              clearAll()
-              router.replace("/")
-            }}
-          >
-            <LogOut className="size-4" />
-            Log out
-          </Button>
+          <Dialog>
+            <DialogTrigger
+              render={
+                <Button variant="outline" className="self-start">
+                  <RotateCcw className="size-4" />
+                  Reset this device
+                </Button>
+              }
+            />
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Reset this device?</DialogTitle>
+                <DialogDescription>
+                  This removes your profile, consent and all health data stored
+                  on this device. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end">
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    leavingRef.current = true
+                    clearAll()
+                    router.replace("/")
+                  }}
+                >
+                  Reset and erase
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </section>
 
         <section className="flex flex-col gap-3 border-t border-border pt-5">

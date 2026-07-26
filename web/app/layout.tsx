@@ -16,10 +16,9 @@ const fraunces = Fraunces({
 })
 
 export const metadata: Metadata = {
-  title: "Consultation Companion",
+  title: "Cadence",
   description:
     "Record, transcribe and understand your doctor appointments with clear, patient-friendly summaries.",
-  generator: "v0.app",
   // The icons exist in public/ but were never linked, so every page load
   // fell back to requesting /favicon.ico, which nothing serves — a 404 on
   // every console.
@@ -28,11 +27,13 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: "light",
-  themeColor: "#ffffff",
+  // sRGB of --background oklch(0.985 0.006 210), so the browser chrome
+  // matches the page instead of flashing pure white.
+  themeColor: "#f6fbfc",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // No zoom lock: this population pinch-zooms (WCAG 1.4.4), and inputs are
+  // 16px so iOS will not auto-zoom on focus anyway.
 }
 
 export default function RootLayout({

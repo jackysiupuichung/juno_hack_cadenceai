@@ -72,6 +72,10 @@ function CheckInCall() {
   const savedRef = React.useRef(false)
   const feedRef = React.useRef<HTMLDivElement>(null)
 
+  // Declared before the hook so onDisconnect can reach the save defined below;
+  // assigned once save exists.
+  const saveRef = React.useRef<() => Promise<void>>(async () => {})
+
   const { startSession, endSession, status, isSpeaking } = useConversation({
     onMessage: ({ message, role }: { message: string; role: string }) => {
       const turn: Turn = {
@@ -80,6 +84,11 @@ function CheckInCall() {
       }
       turnsRef.current = [...turnsRef.current, turn]
       setTurns(turnsRef.current)
+    },
+    onDisconnect: () => {
+      // The agent hanging up on its own is the normal ending, not an edge
+      // case — save then too. savedRef keeps a tap-plus-disconnect to one save.
+      void saveRef.current()
     },
     onError: (message: string) => {
       setError(message || "The voice connection failed.")
@@ -146,7 +155,6 @@ function CheckInCall() {
     }
   }, [conditionId])
 
-  const saveRef = React.useRef(save)
   saveRef.current = save
 
   async function begin() {
@@ -280,34 +288,57 @@ function CheckInCall() {
         {(phase === "connecting" || phase === "live" || phase === "saving") && (
           <>
             <div className="flex flex-col items-center gap-2 pt-2 text-center">
+              {/* The voice made visible: bars while Cadence speaks, one calm
+                  breath while it listens. The status text carries the words. */}
               <div
+                aria-hidden
                 className={cn(
                   "flex size-16 items-center justify-center rounded-full transition-colors",
-                  isSpeaking
-                    ? "bg-primary/20 text-primary"
-                    : "bg-accent text-accent-foreground",
+                  isSpeaking ? "bg-primary/20" : "bg-accent",
                 )}
               >
-                <PhoneCall
-                  className={cn("size-7", isSpeaking && "animate-pulse")}
-                />
+                {isSpeaking ? (
+                  <div className="flex h-8 items-center gap-1">
+                    {["h-3", "h-6", "h-4", "h-5"].map((height, i) => (
+                      <span
+                        key={height}
+                        className={cn("w-1 rounded-full bg-primary", height)}
+                        style={{
+                          animation: `eq-bar 0.9s ease-in-out ${i * 120}ms infinite`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <span
+                    className="h-6 w-1 rounded-full bg-primary"
+                    style={
+                      status === "disconnected" || status === "error"
+                        ? undefined // the call is over; the bar comes to rest
+                        : { animation: "eq-breathe 2.2s ease-in-out infinite" }
+                    }
+                  />
+                )}
               </div>
-              <p className="text-sm font-medium">
+              <p role="status" className="text-sm font-medium">
                 {phase === "connecting"
                   ? "Connecting…"
                   : phase === "saving"
                     ? "Saving your check-in…"
-                    : isSpeaking
-                      ? "Cadence is speaking"
-                      : status === "connected"
-                        ? "Listening…"
-                        : "Connecting…"}
+                    : status === "disconnected" || status === "error"
+                      ? "Call ended"
+                      : isSpeaking
+                        ? "Cadence is speaking"
+                        : status === "connected"
+                          ? "Listening…"
+                          : "Connecting…"}
               </p>
             </div>
 
             {/* The record being written, as it is written. */}
             <div
               ref={feedRef}
+              aria-live="polite"
               className="flex min-h-40 flex-1 flex-col gap-2.5 overflow-y-auto rounded-2xl border border-border bg-card p-3.5"
             >
               {turns.length === 0 ? (
@@ -368,7 +399,10 @@ function CheckInCall() {
 
         {phase === "failed" && (
           <div className="flex flex-1 flex-col gap-4">
-            <div className="flex items-start gap-2 rounded-2xl border border-warning/40 bg-warning/10 p-4">
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-2xl border border-warning/40 bg-warning/10 p-4"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
               <p className="text-sm text-warning-foreground">{error}</p>
             </div>
@@ -384,6 +418,20 @@ function CheckInCall() {
           </div>
         )}
       </Content>
+
+      {/* Same pattern as the landing page's orb-float. globals.css already
+          collapses these under prefers-reduced-motion; at rest the bars simply
+          stand at their staggered heights. */}
+      <style>{`
+        @keyframes eq-bar {
+          0%, 100% { transform: scaleY(0.4); }
+          50% { transform: scaleY(1); }
+        }
+        @keyframes eq-breathe {
+          0%, 100% { transform: scaleY(0.55); opacity: 0.7; }
+          50% { transform: scaleY(1); opacity: 1; }
+        }
+      `}</style>
     </AppShell>
   )
 }
@@ -436,7 +484,10 @@ function CheckInForm({
       />
       <Content className="flex flex-col gap-4 pb-10">
         {error && (
-          <p className="rounded-2xl border border-warning/40 bg-warning/10 p-4 text-sm text-warning-foreground">
+          <p
+            role="alert"
+            className="rounded-2xl border border-warning/40 bg-warning/10 p-4 text-sm text-warning-foreground"
+          >
             {error}
           </p>
         )}
@@ -476,9 +527,9 @@ function CheckInForm({
                         )
                       }
                       className={cn(
-                        "rounded-xl border-2 px-2 py-2 text-xs font-medium transition-colors",
+                        "rounded-xl border-2 px-2 py-3 text-sm font-medium transition-colors",
                         active
-                          ? "border-primary bg-primary/5 text-foreground"
+                          ? "border-primary bg-primary text-primary-foreground"
                           : "border-border text-muted-foreground hover:border-primary/40",
                       )}
                     >

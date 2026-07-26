@@ -67,11 +67,11 @@ export function CheckInNotification({
         className="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5 transition-colors hover:bg-primary/10 active:bg-primary/15"
       >
         <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-          <PhoneCall className="size-4.5" />
+          <PhoneCall className="size-4" />
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="pr-6 text-sm font-medium text-foreground">
+          <p className="pr-10 text-sm font-medium text-foreground">
             Check-in due today
           </p>
           <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
@@ -84,12 +84,14 @@ export function CheckInNotification({
       </Link>
 
       {/* Layered over the link rather than nested inside it: a button inside an
-          anchor still navigates on tap, so dismissing would open the call. */}
+          anchor still navigates on tap, so dismissing would open the call.
+          Full 44px hit area — a mis-tap here would start a call, so the
+          dismiss target cannot be smaller than the thumb that aims at it. */}
       <button
         type="button"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss check-in reminder"
-        className="absolute right-2.5 top-2.5 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        className="absolute right-0 top-0 flex size-11 items-center justify-center rounded-tr-2xl rounded-bl-2xl text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <X className="size-3.5" />
       </button>

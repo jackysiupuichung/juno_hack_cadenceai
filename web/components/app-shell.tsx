@@ -34,6 +34,7 @@ export function ScreenHeader({
   onBack,
   right,
   sticky = true,
+  display = false,
 }: {
   title: string
   subtitle?: string
@@ -41,6 +42,8 @@ export function ScreenHeader({
   onBack?: () => void
   right?: React.ReactNode
   sticky?: boolean
+  /** Render the title in the display serif — for the app's hero moments. */
+  display?: boolean
 }) {
   const router = useRouter()
   const showBack = Boolean(backHref || onBack)
@@ -66,8 +69,22 @@ export function ScreenHeader({
           <ChevronLeft className="size-5" />
         </Button>
       )}
+      {/* The spacer div stays even without a title so the back button and the
+          right slot keep their edges. Onboarding/consent pass title="" and
+          bring their own h1 — an empty heading here would still be announced. */}
       <div className="min-w-0 flex-1">
-        <h1 className="truncate text-base font-semibold text-foreground">{title}</h1>
+        {title !== "" && (
+          <h1
+            className={cn(
+              "truncate text-foreground",
+              display
+                ? "font-[family-name:var(--font-display)] text-xl font-medium"
+                : "text-base font-semibold",
+            )}
+          >
+            {title}
+          </h1>
+        )}
         {subtitle && (
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         )}

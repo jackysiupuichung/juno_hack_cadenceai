@@ -223,18 +223,18 @@ function TrajectorySection({
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         The expected course
         {week !== null && (
-          <span className="ml-1.5 font-normal normal-case tracking-normal">
+          <span className="ml-1.5 font-normal normal-case tabular-nums tracking-normal">
             &middot; week {week}
           </span>
         )}
       </h2>
 
-      <div className="rounded-3xl border border-border bg-card">
+      <div className="rounded-2xl border border-border bg-card">
         {markers.map((marker, i) => (
           <article key={marker.id} className={cn("p-4", i > 0 && "border-t border-border")}>
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-sm font-medium text-foreground">{marker.marker}</p>
-              <span className="mt-0.5 shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-foreground">
+              <span className="mt-0.5 shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-xs font-medium text-accent-foreground">
                 {STATUS_LABEL[marker.status]}
               </span>
             </div>
@@ -259,7 +259,7 @@ function TrajectorySection({
                     />
                   )}
                 </div>
-                <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                <div className="mt-1 flex justify-between text-xs tabular-nums text-muted-foreground">
                   <span>week {marker.earliest_week}</span>
                   <span>week {marker.expected_by_week}</span>
                 </div>

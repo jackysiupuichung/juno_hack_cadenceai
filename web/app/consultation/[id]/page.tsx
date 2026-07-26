@@ -12,6 +12,7 @@ import {
   Leaf,
   MapPin,
   Pill,
+  Plus,
   Smile,
   Stethoscope,
   Trash2,
@@ -22,6 +23,7 @@ import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { SummaryCard } from "@/components/summary-card"
 import { AddReminderDialog } from "@/components/add-reminder-dialog"
+import { NewConditionDialog } from "@/components/new-condition-dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -77,10 +79,16 @@ export default function ConsultationPage() {
 
   return (
     <AppShell>
+      {/* Back to where this visit lives: its condition's timeline when it is
+          linked, home when it is not. */}
       <ScreenHeader
         title="Consultation"
         subtitle={condition ? `${condition.name} · ${formatDate(appointment.date)}` : formatDate(appointment.date)}
-        backHref="/home"
+        backHref={
+          appointment.conditionId
+            ? `/condition/${appointment.conditionId}`
+            : "/home"
+        }
       />
 
       <Content className="flex flex-col gap-4 pb-10">
@@ -146,6 +154,21 @@ export default function ConsultationPage() {
               ? "This consultation appears under the linked condition."
               : "Attach this consultation to a condition to keep related visits together."}
           </p>
+          {/* Record-first must not dead-end: a visit recorded before its
+              condition existed can mint one here and link itself to it. */}
+          <NewConditionDialog
+            onCreated={(id) => linkAppointment(appointment.id, id)}
+            trigger={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start text-muted-foreground"
+              >
+                <Plus className="size-4" />
+                New condition
+              </Button>
+            }
+          />
         </section>
 
         {!s ? (
