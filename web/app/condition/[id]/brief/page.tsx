@@ -8,6 +8,7 @@ import { ApiError, type Brief, api } from "@/lib/api"
 import { conditionName, useApp } from "@/lib/store"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { BriefSheet } from "@/components/brief-sheet"
+import { BriefSkeleton } from "@/components/brief-skeleton"
 import { Button } from "@/components/ui/button"
 
 /**
@@ -128,17 +129,9 @@ export default function BriefPage() {
       />
 
       <Content className="flex flex-col gap-4 pb-10">
-        {loading && (
-          <div
-            role="status"
-            className="flex flex-col items-center gap-3 py-16 text-center"
-          >
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Building your brief from the interval…
-            </p>
-          </div>
-        )}
+        {/* A first build runs the better part of a minute, so it gets the
+            shape of the document it is becoming rather than a spinner. */}
+        {loading && <BriefSkeleton />}
 
         {error && !loading && (
           <div

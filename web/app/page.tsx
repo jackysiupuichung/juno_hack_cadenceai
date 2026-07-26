@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
 import { BriefMini } from "@/components/brief-mini"
 import { LoopSchematic } from "@/components/loop-schematic"
+import { RainCurtain } from "@/components/rain-curtain"
 
 const LOOP_STEPS = [
   {
@@ -24,12 +25,12 @@ const LOOP_STEPS = [
   {
     icon: FileText,
     title: "Understand it instantly",
-    body: "A clear, plain-language summary — what was said, what it means, what you agreed to do next.",
+    body: "A clear, plain-language summary: what was said, what it means, what you agreed to do next.",
   },
   {
     icon: MessageCircleHeart,
     title: "Follow through, by voice",
-    body: "Short check-in calls over the following weeks track what actually happened — no forms, just a 30-second call.",
+    body: "Short check-in calls over the following weeks track what actually happened. No forms, just a 30-second call.",
   },
   {
     icon: ClipboardCheck,
@@ -42,7 +43,7 @@ const TRUST_POINTS = [
   {
     icon: ShieldCheck,
     title: "Yours, not the clinic's",
-    body: "Your record lives with you and travels with you — to a specialist, a new city, a different doctor entirely.",
+    body: "Your record lives with you and travels with you: to a specialist, a new city, a different doctor entirely.",
   },
   {
     icon: Sparkles,
@@ -76,6 +77,9 @@ export default function LandingPage() {
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-24 -z-10 h-[440px] bg-[radial-gradient(60%_55%_at_72%_10%,color-mix(in_oklab,var(--primary)_7%,transparent),transparent)]"
         />
+        {/* Weather, not subject: a faint interactive rain curtain hangs over
+            the hero. Sway it with the pointer; a fast swipe sheds drops. */}
+        <RainCurtain className="absolute inset-0 -z-10 size-full" />
 
         <div className="grid grid-cols-1 items-center lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-14">
           <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
@@ -138,7 +142,7 @@ export default function LandingPage() {
             One loop, every visit
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground">
-            The same four steps, every time — until the record is something you
+            The same four steps, every time, until the record is something you
             can actually stand on.
           </p>
         </Reveal>
@@ -198,7 +202,7 @@ export default function LandingPage() {
             </h2>
             <p className="max-w-md text-pretty text-muted-foreground">
               Your first consultation takes a couple of minutes to set up. No
-              account, no clinic sign-off — just you and your record.
+              account, no clinic sign-off. Just you and your record.
             </p>
             <Button
               size="lg"
@@ -214,7 +218,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="mx-auto w-full max-w-5xl px-6 pb-10 text-center text-xs text-muted-foreground">
-        Cadence documents and supports — it never diagnoses or prescribes.
+        Cadence documents and supports. It never diagnoses or prescribes.
       </footer>
     </div>
   )
