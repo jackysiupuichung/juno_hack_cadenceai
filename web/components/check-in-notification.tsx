@@ -42,9 +42,11 @@ export function CheckInNotification({
         if (cancelled) return
         setWeek(ctx.week)
         setOpen(ctx.open_commitments.length)
-        // Nothing still open means nothing to ask about. Showing the prompt
-        // anyway would spend the patient's attention on a call with no agenda.
-        setReady(ctx.open_commitments.length > 0)
+        // The context loading at all means there is an interval to check in
+        // on. The agenda is not only open commitments: the plan carries its
+        // own items (symptom checks, red-flag questions), so a call is worth
+        // offering even when nothing is formally still open.
+        setReady(true)
       } catch {
         // No visits yet, or the backend is unreachable. Either way there is no
         // interval to check in on, so the prompt simply does not appear.
@@ -75,8 +77,10 @@ export function CheckInNotification({
             Check-in due today
           </p>
           <p className="mt-0.5 text-pretty text-xs text-muted-foreground">
-            {conditionName} · week {week ?? 0} · {open}{" "}
-            {open === 1 ? "thing" : "things"} still open from your visit
+            {conditionName} · week {week ?? 0} ·{" "}
+            {open > 0
+              ? `${open} ${open === 1 ? "thing" : "things"} still open from your visit`
+              : "a short call about how you're doing"}
           </p>
         </div>
 
