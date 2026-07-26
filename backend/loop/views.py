@@ -53,9 +53,11 @@ RESOLVED_STATUSES = {"done", "not_done", "partial", "changed"}
 
 
 def _latest_medication_names(condition_id: str) -> list[str]:
-    """Medication names from the condition's most recent visit — the link
-    from "what was prescribed" to the drugs reference table."""
-    visits = repo.list_visits(condition_id)
+    """Medication names from the condition's most recent held visit — the link
+    from "what was prescribed" to the drugs reference table. Filtered through
+    _visits_held because the appointment ahead is also a visit row, sorted
+    first, with no summary and so no medications."""
+    visits = _visits_held(repo.list_visits(condition_id))
     if not visits:
         return []
     medications = (visits[0].get("summary") or {}).get("medications") or []

@@ -104,7 +104,7 @@ def list_visits(condition_id: str) -> list[dict]:
 def list_visits_for_patient(patient_id: str) -> list[dict]:
     """Every consultation the patient has recorded, linked or not — a visit
     no longer requires a condition (see
-    supabase/migrations/20260725190000_standalone_visits.sql)."""
+    supabase/migrations/20260726170000_standalone_visits.sql)."""
     sb = get_supabase()
     return (
         sb.table("visits")
