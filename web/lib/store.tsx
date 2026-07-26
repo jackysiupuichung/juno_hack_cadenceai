@@ -110,6 +110,7 @@ interface AppContextValue {
   withdrawConsent: () => void
   setReminders: (enabled: boolean) => void
   addCondition: (name: string) => Promise<Condition>
+  renameCondition: (id: string, name: string) => Promise<void>
   completeCondition: (id: string) => void
   reopenCondition: (id: string) => void
   deleteCondition: (id: string) => void
@@ -179,6 +180,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         setData((d) => ({ ...d, conditions: [condition, ...d.conditions] }))
         return condition
+      },
+      // Awaited (unlike completeCondition/reopenCondition below) so the
+      // screen can surface a validation error — an empty name is rejected
+      // server-side — rather than silently doing nothing.
+      renameCondition: async (id, name) => {
+        const updated = await api.renameCondition(id, name.trim())
+        setData((d) => ({
+          ...d,
+          conditions: d.conditions.map((c) =>
+            c.id === id ? { ...c, name: updated.name } : c,
+          ),
+        }))
       },
       // Written through to the server, then applied locally so the screen
       // responds immediately. A failed write leaves the local state alone

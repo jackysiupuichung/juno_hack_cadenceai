@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   RotateCcw,
   Trash2,
+  Pencil,
   ChevronRight,
   CalendarDays,
   CalendarClock,
@@ -21,6 +22,7 @@ import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
 import { StatusBadge } from "@/components/status-badge"
 import { LinkConsultationDialog } from "@/components/link-consultation-dialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -33,14 +35,44 @@ import {
 export default function ConditionDetailPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
-  const { data, hydrated, completeCondition, reopenCondition, deleteCondition } =
-    useApp()
+  const {
+    data,
+    hydrated,
+    completeCondition,
+    reopenCondition,
+    deleteCondition,
+    renameCondition,
+  } = useApp()
 
   const condition = data.conditions.find((c) => c.id === params.id)
 
   React.useEffect(() => {
     if (hydrated && !condition) router.replace("/home")
   }, [hydrated, condition, router])
+
+  const [renameOpen, setRenameOpen] = React.useState(false)
+  const [nameDraft, setNameDraft] = React.useState("")
+  const [renameError, setRenameError] = React.useState<string | null>(null)
+  const [renaming, setRenaming] = React.useState(false)
+
+  async function handleRename() {
+    if (!condition) return
+    const trimmed = nameDraft.trim()
+    if (!trimmed) {
+      setRenameError("Name can't be empty.")
+      return
+    }
+    setRenaming(true)
+    setRenameError(null)
+    try {
+      await renameCondition(condition.id, trimmed)
+      setRenameOpen(false)
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : "Couldn't rename it.")
+    } finally {
+      setRenaming(false)
+    }
+  }
 
   if (!condition) {
     return (
@@ -66,8 +98,58 @@ export default function ConditionDetailPage() {
       <ScreenHeader
         title={condition.name}
         backHref="/home"
-        right={<StatusBadge status={condition.status} />}
+        right={
+          <div className="flex items-center gap-1">
+            {!isCompleted && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Rename condition"
+                onClick={() => {
+                  setNameDraft(condition.name)
+                  setRenameError(null)
+                  setRenameOpen(true)
+                }}
+              >
+                <Pencil className="size-4" />
+              </Button>
+            )}
+            <StatusBadge status={condition.status} />
+          </div>
+        }
       />
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename condition</DialogTitle>
+            <DialogDescription>
+              This changes what you see it called — it doesn&apos;t affect the
+              consultations or plan linked to it.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            placeholder="e.g. Thyroid"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleRename()
+            }}
+          />
+          {renameError && (
+            <p className="text-sm text-destructive">{renameError}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRenameOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleRename()} disabled={renaming}>
+              {renaming ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Content className="flex flex-col gap-5 pb-28">
         {isCompleted && (

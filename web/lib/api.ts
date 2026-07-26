@@ -251,6 +251,9 @@ export const api = {
   setConditionStatus: (id: string, status: "active" | "completed") =>
     post<Condition>(`conditions/${id}`, { status }),
 
+  renameCondition: (id: string, name: string) =>
+    post<Condition>(`conditions/${id}`, { name }),
+
   deleteCondition: (id: string) =>
     request<void>(`conditions/${id}`, { method: "DELETE" }),
 

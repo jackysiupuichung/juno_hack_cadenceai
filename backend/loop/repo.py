@@ -75,6 +75,11 @@ def update_condition_status(condition_id: str, status: str) -> dict:
     return sb.table("conditions").update({"status": status}).eq("id", condition_id).execute().data[0]
 
 
+def update_condition_name(condition_id: str, name: str) -> dict:
+    sb = get_supabase()
+    return sb.table("conditions").update({"name": name}).eq("id", condition_id).execute().data[0]
+
+
 def delete_condition(condition_id: str) -> None:
     """Its check_ins/outcomes/briefs/plans/events cascade-delete via FK.
     Visits are exempt — they're standalone consultations that merely

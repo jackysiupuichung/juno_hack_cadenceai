@@ -433,7 +433,8 @@ def conditions(request):
 def condition_detail(request, condition_id):
     """POST {"status": "completed" | "active"} updates status.
     POST {"disease_context_id": "hypothyroidism" | null} links/unlinks a
-    disease context. DELETE removes the condition and everything under it."""
+    disease context. POST {"name": "..."} renames it. DELETE removes the
+    condition and everything under it."""
     condition, error = _condition_or_404(condition_id)
     if error:
         return error
@@ -449,6 +450,12 @@ def condition_detail(request, condition_id):
                 {"error": f"unknown disease_context_id {dc_id!r}"}, status=status.HTTP_400_BAD_REQUEST
             )
         condition = repo.set_condition_disease_context(condition_id, dc_id)
+
+    if "name" in request.data:
+        new_name = (request.data.get("name") or "").strip()
+        if not new_name:
+            return Response({"error": "name must not be empty"}, status=status.HTTP_400_BAD_REQUEST)
+        condition = repo.update_condition_name(condition_id, new_name)
 
     new_status = request.data.get("status")
     if new_status is not None:
