@@ -217,7 +217,7 @@ export default function ConditionDetailPage() {
                 <DialogTitle>Delete this condition?</DialogTitle>
                 <DialogDescription>
                   This removes &ldquo;{condition.name}&rdquo;. Its consultations are
-                  kept and simply unlinked — you&apos;ll still find them in the
+                  kept and simply unlinked, so you&apos;ll still find them in the
                   Consultations tab. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
@@ -238,7 +238,7 @@ export default function ConditionDetailPage() {
       </Content>
 
       {!isCompleted && (
-        <div className="sticky bottom-0 z-20 border-t border-border bg-background/90 px-4 py-3 backdrop-blur-md">
+        <div className="glass-nav-bottom sticky bottom-0 z-20 px-4 py-3">
           <Button
             size="lg"
             className="h-12 w-full"

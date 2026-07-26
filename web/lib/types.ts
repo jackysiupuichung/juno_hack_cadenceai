@@ -3,6 +3,7 @@ export type CareSetting = "GP" | "Hospital" | "Emergency" | "Specialist"
 export type ConditionStatus = "active" | "completed"
 
 export interface Profile {
+  /** The login handle as well as the display name. */
   name: string
   dateOfBirth: string // ISO yyyy-mm-dd
 }
@@ -73,6 +74,10 @@ export interface Reminder {
 
 export interface AppData {
   profile: Profile | null
+  /** The signed-in session's token. Set on sign-up/sign-in, cleared on log
+   * out — everything else in this object is convenience cache; this is what
+   * actually determines whose data the backend returns. */
+  authToken: string | null
   consent: Consent | null
   settings: Settings
   conditions: Condition[]

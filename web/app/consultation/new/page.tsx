@@ -59,7 +59,7 @@ function NewConsultationInner() {
     // here rather than at the API so the patient is told what to pick, not
     // shown a 400.
     if (conditionId === NO_CONDITION) {
-      setError("Choose a condition first — the follow-up plan is built around it.")
+      setError("Choose a condition first: the follow-up plan is built around it.")
       return
     }
     setError(null)
@@ -154,7 +154,7 @@ function NewConsultationInner() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground text-pretty">
-              Not sure what this is about? Leave it unlinked — you can attach it
+              Not sure what this is about? Leave it unlinked. You can attach it
               to a condition later.
             </p>
           </div>

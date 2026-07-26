@@ -32,7 +32,7 @@ from capture.plan import as_agent_brief as plan_as_agent_brief
 from capture.plan import coverage as plan_coverage
 from capture.redflags import evaluate_flags
 
-from . import caretaker_repo, medication_repo, repo
+from . import auth, caretaker_repo, medication_repo, repo
 from . import disease_context as disease_context_module
 from .services import (
     BRIEF_SYSTEM_PROMPT,
@@ -239,29 +239,144 @@ def _load_plan(condition_id: str) -> CheckInPlan | None:
     return CheckInPlan(data=row["content"]) if row else None
 
 
-def _condition_or_404(condition_id: str):
+def _condition_or_404(condition_id: str, patient_id: str):
+    """A condition, only if it belongs to the calling patient.
+
+    Returns the same 404 for "doesn't exist" and "belongs to someone else" —
+    an authenticated patient guessing another patient's condition_id learns
+    nothing from the response either way.
+    """
     condition = repo.get_condition(condition_id) if condition_id else None
-    if not condition:
+    if not condition or condition.get("patient_id") != patient_id:
         return None, Response({"error": "condition not found"}, status=status.HTTP_404_NOT_FOUND)
     return condition, None
+
+
+def _visit_or_404(visit_id: str, patient_id: str):
+    """A visit, only if it belongs to the calling patient. See _condition_or_404."""
+    visit = repo.get_visit(visit_id) if visit_id else None
+    if not visit or visit.get("patient_id") != patient_id:
+        return None, Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+    return visit, None
+
+
+# --- Accounts -----------------------------------------------------------
+
+
+def _patient_public(patient: dict) -> dict:
+    """The patient row, minus password_hash — never send a hash to the client."""
+    return {
+        "id": patient["id"],
+        "name": patient.get("name", ""),
+        "date_of_birth": patient.get("date_of_birth"),
+    }
+
+
+@api_view(["POST"])
+def signup(request):
+    """Create a new account. { name, password, date_of_birth }.
+
+    "name" is the login handle as well as the display name — one field to
+    collect instead of a separate username and email, at the cost of it
+    having to be globally unique (enforced in Postgres, see
+    supabase/migrations/20260726110500_patient_username_login.sql).
+
+    date_of_birth travels with the account from here on, rather than living
+    only in the browser's localStorage — the point of an account is that it
+    survives a cleared cache or a second device.
+    """
+    name = (request.data.get("name") or "").strip()
+    password = request.data.get("password") or ""
+    date_of_birth = request.data.get("date_of_birth") or None
+
+    if not name or not password or not date_of_birth:
+        return Response(
+            {"error": "name, date of birth and password are required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if len(password) < 8:
+        return Response(
+            {"error": "Password must be at least 8 characters."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if repo.get_patient_by_username(name):
+        return Response(
+            {"error": "That username is already taken."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    patient_row = repo.create_patient_account(
+        name=name,
+        password_hash=auth.hash_password(password),
+        date_of_birth=date_of_birth,
+    )
+    return Response(
+        {
+            "token": auth.issue_token(patient_row["id"]),
+            "patient": _patient_public(patient_row),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+def login(request):
+    """{ name, password } -> a token for the matching account.
+
+    One error message for both "no such username" and "wrong password" —
+    telling them apart would let a caller enumerate registered usernames.
+    """
+    name = (request.data.get("name") or "").strip()
+    password = request.data.get("password") or ""
+
+    patient_row = repo.get_patient_by_username(name) if name else None
+    if (
+        not patient_row
+        or not patient_row.get("password_hash")
+        or not auth.verify_password(password, patient_row["password_hash"])
+    ):
+        return Response(
+            {"error": "Incorrect username or password."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    return Response(
+        {
+            "token": auth.issue_token(patient_row["id"]),
+            "patient": _patient_public(patient_row),
+        }
+    )
+
+
+@api_view(["GET"])
+@auth.require_auth
+def me(request):
+    """The signed-in patient's own profile — restores a session on a new
+    device, or after local storage is cleared."""
+    patient_row = repo.get_patient(request.patient_id)
+    if not patient_row:
+        return Response({"error": "patient not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response(_patient_public(patient_row))
 
 
 # --- Patient profile ---------------------------------------------------------
 
 
 @api_view(["GET", "PATCH"])
+@auth.require_auth
 def patient(request):
-    """GET returns the (single, hardcoded) patient's profile. PATCH updates
-    their name — set during onboarding."""
+    """GET returns the signed-in patient's profile. PATCH updates their name."""
     if request.method == "PATCH":
         name = (request.data.get("name") or "").strip()
         if not name:
             return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        p = repo.get_or_create_patient()
-        updated = repo.update_patient_name(p["id"], name)
-        return Response(updated)
+        updated = repo.update_patient_name(request.patient_id, name)
+        return Response(_patient_public(updated))
 
-    return Response(repo.get_or_create_patient())
+    patient_row = repo.get_patient(request.patient_id)
+    if not patient_row:
+        return Response({"error": "patient not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response(_patient_public(patient_row))
 
 
 # --- The caretaker's standing context ----------------------------------------
@@ -289,6 +404,7 @@ CARETAKER_FIELDS = (
 
 
 @api_view(["GET", "PUT"])
+@auth.require_auth
 def caretaker_context(request):
     """What the caretaker knows about the person before it rings.
 
@@ -300,11 +416,10 @@ def caretaker_context(request):
     replace would mean every partial save silently cleared everything the
     patient had told us on a previous screen.
     """
-    p = repo.get_or_create_patient()
-    current = caretaker_repo.get_caretaker_context(p["id"])
+    current = caretaker_repo.get_caretaker_context(request.patient_id)
 
     if request.method == "GET":
-        return Response(caretaker.to_row(current, p["id"]))
+        return Response(caretaker.to_row(current, request.patient_id))
 
     updates = {k: v for k, v in request.data.items() if k in CARETAKER_FIELDS}
     unknown = [k for k in request.data if k not in CARETAKER_FIELDS]
@@ -325,13 +440,14 @@ def caretaker_context(request):
         )
 
     merged = replace(current, **updates)
-    return Response(caretaker_repo.save_caretaker_context(p["id"], merged))
+    return Response(caretaker_repo.save_caretaker_context(request.patient_id, merged))
 
 
 # --- The medication thread ---------------------------------------------------
 
 
 @api_view(["GET"])
+@auth.require_auth
 def medications(request):
     """The medication thread for a condition, as the calls have left it.
 
@@ -339,7 +455,7 @@ def medications(request):
     can show the same outstanding items the next call will raise rather than
     reimplementing the sequencing rules that decide them.
     """
-    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    condition, error = _condition_or_404(request.query_params.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -392,22 +508,21 @@ def medications(request):
 
 
 @api_view(["GET", "POST"])
+@auth.require_auth
 def conditions(request):
     """GET lists every condition with its appointment count and most recent
     follow-up plan (the Home screen's reminder). POST creates a new one."""
-    p = repo.get_or_create_patient()
-
     if request.method == "POST":
         name = (request.data.get("name") or "").strip()
         if not name:
             return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
         created = repo.create_condition(
-            p["id"], name, disease_context_id=request.data.get("disease_context_id") or None
+            request.patient_id, name, disease_context_id=request.data.get("disease_context_id") or None
         )
         return Response(created, status=status.HTTP_201_CREATED)
 
     result = []
-    for c in repo.list_conditions(p["id"]):
+    for c in repo.list_conditions(request.patient_id):
         visits = repo.list_visits(c["id"])
         reminder = None
         for v in visits:  # newest first
@@ -429,11 +544,12 @@ def conditions(request):
 
 
 @api_view(["POST", "DELETE"])
+@auth.require_auth
 def condition_detail(request, condition_id):
     """POST {"status": "completed" | "active"} updates status.
     POST {"disease_context_id": "hypothyroidism" | null} links/unlinks a
     disease context. DELETE removes the condition and everything under it."""
-    condition, error = _condition_or_404(condition_id)
+    condition, error = _condition_or_404(condition_id, request.patient_id)
     if error:
         return error
 
@@ -467,6 +583,7 @@ def disease_contexts(request):
 
 
 @api_view(["GET", "POST"])
+@auth.require_auth
 def drugs(request):
     """GET lists the drug reference library. POST adds one, validated against
     schemas/drug.schema.json's required shape (not enforced at runtime here —
@@ -488,40 +605,40 @@ def drugs(request):
 
 
 @api_view(["GET", "POST", "DELETE"])
+@auth.require_auth
 def visit_detail(request, visit_id):
     """GET the full visit (summary + transcript + commitments) — the
     Visit detail / summary screen. POST {"condition_id": "..." | null} links
     or unlinks a standalone consultation to/from a condition. DELETE removes
     a single appointment (Settings: per-appointment erasure)."""
+    visit, error = _visit_or_404(visit_id, request.patient_id)
+    if error:
+        return error
+
     if request.method == "DELETE":
         repo.delete_visit(visit_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     if request.method == "POST":
-        if not repo.get_visit(visit_id):
-            return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
         condition_id = request.data.get("condition_id") or None
         if condition_id:
-            _, error = _condition_or_404(condition_id)
+            _, error = _condition_or_404(condition_id, request.patient_id)
             if error:
                 return error
         visit = repo.set_visit_condition(visit_id, condition_id)
         return Response(visit)
 
-    visit = repo.get_visit(visit_id)
-    if not visit:
-        return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
     commitments = repo.get_commitments_for_visit(visit_id)
     return Response({**visit, "commitments": commitments})
 
 
 @api_view(["GET"])
+@auth.require_auth
 def visits(request):
     """Consultations tab: every consultation the patient has recorded,
     whether or not it's tagged to a condition."""
-    p = repo.get_or_create_patient()
     result = []
-    for v in repo.list_visits_for_patient(p["id"]):
+    for v in repo.list_visits_for_patient(request.patient_id):
         result.append(
             {
                 **v,
@@ -532,6 +649,7 @@ def visits(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def ask(request):
     """Chatbot: answer a question about one recorded visit, grounded only in
     its transcript + structured summary. Requires "visit_id" and "question"."""
@@ -542,9 +660,9 @@ def ask(request):
             {"error": "visit_id and question are required"}, status=status.HTTP_400_BAD_REQUEST
         )
 
-    visit = repo.get_visit(visit_id)
-    if not visit:
-        return Response({"error": "visit not found"}, status=status.HTTP_404_NOT_FOUND)
+    visit, error = _visit_or_404(visit_id, request.patient_id)
+    if error:
+        return error
 
     user_content = (
         f"Transcript:\n{visit.get('transcript', '')}\n\n"
@@ -585,10 +703,11 @@ def ask(request):
 
 
 @api_view(["GET"])
+@auth.require_auth
 def timeline(request):
     """Condition detail screen: the open-commitments panel + a merged,
     newest-first feed of visits, check-ins, and briefs for one condition."""
-    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    condition, error = _condition_or_404(request.query_params.get("condition_id"), request.patient_id)
     if error:
         return error
     condition_id = condition["id"]
@@ -629,6 +748,7 @@ def timeline(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def summarise(request):
     """
     Transcript (pasted, or the output of /api/transcribe) in; a persisted
@@ -643,7 +763,7 @@ def summarise(request):
     condition_id = request.data.get("condition_id") or None
     condition = None
     if condition_id:
-        condition, error = _condition_or_404(condition_id)
+        condition, error = _condition_or_404(condition_id, request.patient_id)
         if error:
             return error
 
@@ -667,9 +787,8 @@ def summarise(request):
     # than starting from the transcript again.
     previous_brief = repo.get_latest_brief(condition["id"]) if condition else None
 
-    p = repo.get_or_create_patient()
     visit = repo.create_visit(
-        p["id"],
+        request.patient_id,
         condition_id=condition_id,
         date=request.data.get("date") or date_cls.today().isoformat(),
         care_setting=request.data.get("care_setting", "gp"),
@@ -790,6 +909,7 @@ def _scheduled_rows(condition: dict, visit_id: str, visit_date: date_cls) -> lis
 
 
 @api_view(["GET"])
+@auth.require_auth
 def checkin_context(request):
     """What the voice agent needs to know before it dials.
 
@@ -799,7 +919,7 @@ def checkin_context(request):
     baked into the agent so a check-in always reflects what the record holds
     now, including anything an earlier call in the same interval turned up.
     """
-    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    condition, error = _condition_or_404(request.query_params.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -824,7 +944,7 @@ def checkin_context(request):
 
     # Who is being rung. Hangs off the patient rather than the condition — it is
     # the same person on every call about every condition they have.
-    person = caretaker_repo.get_caretaker_context(settings.PATIENT_ID)
+    person = caretaker_repo.get_caretaker_context(request.patient_id)
 
     return Response(
         {
@@ -863,6 +983,7 @@ def checkin_context(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def checkin_session(request):
     """Mint a short-lived token so the browser can talk to the voice agent.
 
@@ -877,7 +998,7 @@ def checkin_session(request):
     plan the CLI agent reads, so a voice call and a typed one are the same
     check-in conducted differently.
     """
-    condition, error = _condition_or_404(request.data.get("condition_id"))
+    condition, error = _condition_or_404(request.data.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -963,12 +1084,13 @@ def checkin_session(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def checkin(request):
     """
     Voice path:        { "condition_id": "...", "transcript": "..." }
     Text-form fallback: { "condition_id": "...", "outcomes": [{"commitment_id": "...", "status": "...", "note": "..."}] }
     """
-    condition, error = _condition_or_404(request.data.get("condition_id"))
+    condition, error = _condition_or_404(request.data.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -1142,6 +1264,7 @@ def checkin(request):
 
 
 @api_view(["GET"])
+@auth.require_auth
 def events(request):
     """The chronology: what happened when, and what is due.
 
@@ -1149,7 +1272,7 @@ def events(request):
     paged, because an interval is weeks long and a chronology split across
     requests cannot be read in order.
     """
-    condition, error = _condition_or_404(request.query_params.get("condition_id"))
+    condition, error = _condition_or_404(request.query_params.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -1194,6 +1317,7 @@ def events(request):
 
 
 @api_view(["GET", "POST"])
+@auth.require_auth
 def plan(request):
     """The interval's agenda: what these weeks are meant to establish.
 
@@ -1206,7 +1330,7 @@ def plan(request):
         if request.method == "GET"
         else request.data.get("condition_id")
     )
-    condition, error = _condition_or_404(condition_id)
+    condition, error = _condition_or_404(condition_id, request.patient_id)
     if error:
         return error
 
@@ -1264,11 +1388,12 @@ def plan(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def brief(request):
     """Generate the next-visit brief from the latest visit + every check-in
     outcome recorded since. The hero screen — see product_doc.md. Requires
     "condition_id" in the body."""
-    condition, error = _condition_or_404(request.data.get("condition_id"))
+    condition, error = _condition_or_404(request.data.get("condition_id"), request.patient_id)
     if error:
         return error
 
@@ -1410,7 +1535,12 @@ def brief(request):
 
 
 @api_view(["POST"])
+@auth.require_auth
 def reset(request):
-    """The 'Delete everything' consent control. Cascades via FK constraints."""
-    repo.delete_patient_cascade(settings.PATIENT_ID)
+    """The 'Delete everything' consent control. Cascades via FK constraints.
+
+    Scoped to the calling patient only — this used to hardcode the single
+    demo patient, so any account triggering it deleted everyone's data.
+    """
+    repo.delete_patient_cascade(request.patient_id)
     return Response(status=status.HTTP_204_NO_CONTENT)

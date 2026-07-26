@@ -172,7 +172,7 @@ export default function ConsultationPage() {
               <SummaryCard
                 tone="warning"
                 icon={<AlertTriangle />}
-                title="Warning signs — seek help if these happen"
+                title="Warning signs: seek help if these happen"
               >
                 <ul className="flex flex-col gap-1.5">
                   {s.red_flags.map((f, i) => (

@@ -6,7 +6,8 @@ export function PrivacyNotice() {
         ElevenLabs (transcription) and an AI provider (summarisation) for
         processing only, then the results are stored locally. Your recordings,
         transcripts, and summaries are saved on this device so you can view them
-        later &mdash; you can delete everything at any time in Settings.
+        later. You can withdraw consent or delete everything at any time in
+        Settings.
       </p>
     </div>
   )

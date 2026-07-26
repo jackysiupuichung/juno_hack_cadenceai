@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   Plus,
-  Settings2,
+  Menu,
   Bell,
   ChevronDown,
   Stethoscope,
@@ -20,6 +20,7 @@ import { ConditionCard } from "@/components/condition-card"
 import { ConsultationCard } from "@/components/consultation-card"
 import { NewConditionDialog } from "@/components/new-condition-dialog"
 import { CheckInNotification } from "@/components/check-in-notification"
+import { Wordmark } from "@/components/logo"
 import { cn } from "@/lib/utils"
 
 type Tab = "conditions" | "consultations"
@@ -61,10 +62,13 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md">
-        <div>
-          <p className="text-xs text-muted-foreground">Welcome back</p>
-          <h1 className="text-lg font-semibold leading-tight">{firstName}</h1>
+      <header className="glass-nav sticky top-0 z-20 flex items-center justify-between gap-3 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Wordmark showText={false} iconSize={22} className="shrink-0" />
+          <div>
+            <p className="text-xs text-muted-foreground">Welcome back</p>
+            <h1 className="text-lg font-semibold leading-tight">{firstName}</h1>
+          </div>
         </div>
         <Button
           variant="ghost"
@@ -73,7 +77,7 @@ export default function HomePage() {
           nativeButton={false}
           render={<Link href="/settings" />}
         >
-          <Settings2 className="size-5" />
+          <Menu className="size-5" strokeWidth={2.25} />
         </Button>
       </header>
 
@@ -254,8 +258,8 @@ export default function HomePage() {
         )}
       </Content>
 
-      {/* Persistent bottom nav — always My Calendar, regardless of active tab */}
-      <div className="sticky bottom-0 z-20 border-t border-border bg-background/90 px-4 py-3 backdrop-blur-md">
+      {/* Persistent bottom nav: always My Calendar, regardless of the active tab. */}
+      <div className="glass-nav-bottom sticky bottom-0 z-20 px-4 py-3">
         <Button
           size="lg"
           variant="secondary"
