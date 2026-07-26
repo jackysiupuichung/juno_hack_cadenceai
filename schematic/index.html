@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadence — System Schematic · The Caretaker Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --field:#071a2d;
+    --sheet:#0d2b49;
+    --ink:#dbe9fb;
+    --ink-dim:rgba(219,233,251,.55);
+    --ink-faint:rgba(219,233,251,.28);
+    --line:rgba(219,233,251,.85);
+    --amber:#ffc857;
+    --red:#ff6b5e;
+    --mint:#63d7b5;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 20% -10%, #0c2946 0%, transparent 60%),
+      radial-gradient(1000px 800px at 110% 110%, #0a2440 0%, transparent 55%),
+      var(--field);
+    color:var(--ink);
+    font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    min-height:100vh;
+    padding:clamp(16px,3vw,44px);
+  }
+  ::selection{background:var(--amber);color:#082038}
+
+  .noise{
+    position:fixed;inset:0;pointer-events:none;z-index:9;opacity:.05;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .plate{max-width:1520px;margin:0 auto}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+    flex-wrap:wrap;
+    padding:0 4px 18px;
+    animation:fadeup .7s ease both;
+  }
+  h1{
+    font-family:"Big Shoulders Display","Arial Narrow",sans-serif;
+    font-weight:700;
+    font-size:clamp(44px,6vw,76px);
+    line-height:.92;
+    letter-spacing:.045em;
+    text-transform:uppercase;
+  }
+  h1 em{font-style:normal;color:var(--amber)}
+  .sub{
+    margin-top:10px;
+    font-size:clamp(10px,1.2vw,12.5px);
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+  }
+  .thesis{
+    margin-top:6px;
+    font-size:clamp(10px,1.15vw,12px);
+    font-style:italic;
+    color:var(--ink-faint);
+  }
+  .meta{
+    text-align:right;
+    font-size:10.5px;
+    line-height:1.9;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    white-space:nowrap;
+  }
+  .meta b{color:var(--ink);font-weight:500}
+
+  /* ---------- sheet ---------- */
+  .sheet{
+    position:relative;
+    background:
+      repeating-linear-gradient(0deg, rgba(180,212,255,.05) 0 1px, transparent 1px 24px),
+      repeating-linear-gradient(90deg, rgba(180,212,255,.05) 0 1px, transparent 1px 24px),
+      repeating-linear-gradient(0deg, rgba(180,212,255,.07) 0 1px, transparent 1px 120px),
+      repeating-linear-gradient(90deg, rgba(180,212,255,.07) 0 1px, transparent 1px 120px),
+      linear-gradient(160deg, #0e2e4f 0%, var(--sheet) 45%, #0b2740 100%);
+    border:1px solid rgba(190,220,255,.3);
+    box-shadow:
+      0 30px 80px -30px rgba(0,0,0,.7),
+      inset 0 0 120px rgba(4,14,26,.55);
+    animation:fadeup .7s .12s ease both;
+  }
+  .sheet::after{ /* inner frame */
+    content:"";position:absolute;inset:9px;border:1px solid rgba(190,220,255,.14);pointer-events:none;
+  }
+  .sheet-scroll{overflow-x:auto;scrollbar-width:thin}
+  svg.diagram{display:block;width:100%;min-width:1000px;height:auto}
+
+  /* ---------- svg typography ---------- */
+  text{font-family:"IBM Plex Mono",ui-monospace,monospace;fill:var(--ink)}
+  .phase{font-size:12px;letter-spacing:.3em;fill:var(--ink-dim)}
+  .lab{font-weight:600;letter-spacing:.14em}
+  .lab-lg{font-size:17px}
+  .lab-md{font-size:13.5px}
+  .lab-sm{font-size:12px}
+  .note{font-size:10px;fill:var(--ink-dim);letter-spacing:.05em}
+  .note-i{font-size:9.5px;font-style:italic;fill:var(--ink-faint)}
+  .edge-lab{font-size:10px;letter-spacing:.08em}
+  .fig{font-size:11px;letter-spacing:.18em;fill:var(--ink-faint)}
+
+  /* ---------- nodes ---------- */
+  .node{transform-box:fill-box;transform-origin:center;animation:rise .55s cubic-bezier(.3,.7,.3,1) both;animation-delay:var(--d,0s);transition:filter .25s ease}
+  .node:hover{filter:brightness(1.3)}
+  .node rect,.node path.shape{fill:rgba(8,26,45,.78);stroke:var(--line);stroke-width:1.5}
+  .node.minor rect{stroke:rgba(219,233,251,.6)}
+  .node.hero rect{stroke:var(--amber);stroke-width:2;filter:drop-shadow(0 0 14px rgba(255,200,87,.35))}
+  .node.alarm rect{stroke:var(--red);stroke-width:1.8;filter:drop-shadow(0 0 12px rgba(255,107,94,.28))}
+  .node.hero .lab{fill:var(--amber)}
+  .node.alarm .lab{fill:var(--red)}
+
+  /* ---------- edges ---------- */
+  .draw{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:1;stroke-dashoffset:1;
+        animation:drawin .7s cubic-bezier(.4,0,.2,1) both;animation-delay:var(--d,0s)}
+  .draw.amber{stroke:rgba(255,200,87,.6);stroke-width:1.8}
+  .draw.red{stroke:rgba(255,107,94,.75)}
+  .draw.mint{stroke:var(--mint);stroke-dasharray:1;opacity:.75}
+  .draw.arc{stroke:rgba(255,200,87,.45)}
+  .flow{fill:none;stroke-width:2.4;stroke-linecap:round;stroke-dasharray:1 15;opacity:0;
+        animation:appear .5s ease both var(--df,0s), flowmove 1.5s linear infinite}
+  .flow.ice{stroke:rgba(255,255,255,.85)}
+  .flow.amber{stroke:var(--amber)}
+  .flow.red{stroke:var(--red)}
+  .sync{fill:none;stroke:var(--mint);stroke-width:1.4;stroke-dasharray:3 6;opacity:0;
+        animation:appear .5s ease both var(--d,0s)}
+  .fade{opacity:0;animation:appear .5s ease both var(--d,0s)}
+
+  @keyframes drawin{to{stroke-dashoffset:0}}
+  @keyframes flowmove{to{stroke-dashoffset:-16}}
+  @keyframes appear{to{opacity:1}}
+  @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+  @keyframes fadeup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  /* ---------- legend ---------- */
+  .legend{
+    display:flex;flex-wrap:wrap;gap:10px 28px;
+    padding:18px 6px 0;
+    animation:fadeup .7s .3s ease both;
+  }
+  .legend .item{display:flex;align-items:center;gap:10px;font-size:10.5px;letter-spacing:.06em;color:var(--ink-dim)}
+  .legend svg{flex:none}
+
+  /* ---------- title block ---------- */
+  .titleblock{
+    margin-top:18px;
+    display:flex;flex-wrap:wrap;
+    border:1px solid rgba(190,220,255,.3);
+    background:rgba(8,26,45,.6);
+    animation:fadeup .7s .4s ease both;
+  }
+  .cell{
+    flex:1 1 auto;
+    padding:10px 16px 11px;
+    border-left:1px solid rgba(190,220,255,.18);
+    min-width:110px;
+  }
+  .cell:first-child{border-left:none;flex:2 1 220px}
+  .cell .k{display:block;font-size:8.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px}
+  .cell .v{font-size:11.5px;letter-spacing:.04em;color:var(--ink)}
+  .cell .v .hl{color:var(--amber)}
+  .cell a{color:var(--ink-dim);text-decoration:none;letter-spacing:.14em;transition:color .25s ease}
+  .cell a:hover{color:var(--amber)}
+
+  @media (max-width:760px){
+    .meta{text-align:left;white-space:normal}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important}
+    .draw{stroke-dashoffset:0}
+    .flow{display:none}
+    .sync,.fade,.node{opacity:1}
+  }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="plate">
+
+  <header>
+    <div>
+      <h1>Cadence<em>.</em></h1>
+      <div class="sub">System schematic — the caretaker loop</div>
+      <div class="thesis">“a consultation is not an event; it is the start of an interval.”</div>
+    </div>
+    <div class="meta">
+      <b>Juno × Anthropic</b> — build the future of healthcare<br>
+      London · 25–26 Jul 2026 · 36h
+    </div>
+  </header>
+
+  <main class="sheet">
+    <div class="sheet-scroll">
+      <svg class="diagram" viewBox="0 0 1440 880" role="img" aria-labelledby="dtitle ddesc">
+        <title id="dtitle">Cadence caretaker-loop schematic</title>
+        <desc id="ddesc">Visit one produces a patient-owned context record stored in Supabase. A caretaker LLM turns it into a plan, executed as voice check-in calls. Answers are triaged: red flags escalate to an early second consultation; otherwise monitoring data loops back into the record until the scheduled second consultation, which opens with the next-visit brief.</desc>
+
+        <defs>
+          <marker id="m-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="rgba(219,233,251,.9)"/>
+          </marker>
+          <marker id="m-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#ffc857"/>
+          </marker>
+          <marker id="m-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#ff6b5e"/>
+          </marker>
+          <marker id="m-mint" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#63d7b5"/>
+          </marker>
+        </defs>
+
+        <!-- registration crosses -->
+        <g stroke="rgba(219,233,251,.3)" stroke-width="1">
+          <path d="M20 28 H36 M28 20 V36"/>
+          <path d="M1404 28 H1420 M1412 20 V36"/>
+          <path d="M20 852 H36 M28 844 V860"/>
+          <path d="M1404 852 H1420 M1412 844 V860"/>
+        </g>
+
+        <!-- phase bands -->
+        <g class="fade" style="--d:.05s">
+          <text class="phase" x="40" y="48">PHASE I — THE VISIT</text>
+          <text class="phase" x="530" y="48">PHASE II — THE INTERVAL · WEEKS</text>
+          <text class="phase" x="1222" y="48">PHASE III — THE RETURN</text>
+          <path d="M500 66 V800" stroke="rgba(219,233,251,.15)" stroke-dasharray="2 8" fill="none"/>
+          <path d="M1206 66 V800" stroke="rgba(219,233,251,.15)" stroke-dasharray="2 8" fill="none"/>
+        </g>
+
+        <!-- ============ EDGES ============ -->
+
+        <!-- inputs → context -->
+        <path class="draw" style="--d:.25s" pathLength="1" d="M200 298 L260 330" marker-end="url(#m-ink)"/>
+        <path class="draw" style="--d:.3s"  pathLength="1" d="M200 370 L260 360" marker-end="url(#m-ink)"/>
+        <path class="draw" style="--d:.35s" pathLength="1" d="M200 442 L260 390" marker-end="url(#m-ink)"/>
+
+        <!-- context ⇄ supabase -->
+        <path class="sync" style="--d:.55s" d="M350 158 V294" marker-start="url(#m-mint)" marker-end="url(#m-mint)"/>
+        <text class="edge-lab fade" style="--d:.6s" x="364" y="232" fill="#63d7b5" opacity=".85">persist ⇄ recall</text>
+
+        <!-- main chain -->
+        <path class="draw" style="--d:.7s"  pathLength="1" d="M440 360 H554" marker-end="url(#m-ink)"/>
+        <path class="draw" style="--d:.9s"  pathLength="1" d="M770 360 H814" marker-end="url(#m-ink)"/>
+        <path class="draw" style="--d:1.05s" pathLength="1" d="M950 360 H984" marker-end="url(#m-ink)"/>
+        <path class="flow ice" style="--df:1.2s" d="M440 360 H554"/>
+        <path class="flow ice" style="--df:1.2s" d="M770 360 H814"/>
+        <path class="flow ice" style="--df:1.2s" d="M950 360 H984"/>
+
+        <!-- check-in → triage -->
+        <path class="draw" style="--d:1.2s" pathLength="1" d="M1090 408 V446" marker-end="url(#m-ink)"/>
+
+        <!-- triage: no → monitor -->
+        <path class="draw" style="--d:1.35s" pathLength="1" d="M1054 488 H965 V554" marker-end="url(#m-ink)"/>
+        <text class="edge-lab fade" style="--d:1.4s" x="1042" y="480" text-anchor="end" fill="rgba(219,233,251,.6)">no — log it</text>
+
+        <!-- triage: yes → early return -->
+        <path class="draw red" style="--d:1.5s" pathLength="1" d="M1126 488 H1322 V614" marker-end="url(#m-red)"/>
+        <path class="flow red" style="--df:1.7s" d="M1126 488 H1322 V614"/>
+        <text class="edge-lab fade" style="--d:1.55s" x="1146" y="480" fill="#ff6b5e">yes</text>
+        <text class="edge-lab fade" style="--d:1.6s" x="1310" y="560" text-anchor="end" fill="#ff6b5e" opacity=".85">escalate — emergency</text>
+
+        <!-- monitor → context : THE LOOP -->
+        <path class="draw amber" style="--d:1.65s" pathLength="1" d="M880 592 H350 V426" marker-end="url(#m-amber)"/>
+        <path class="flow amber" style="--df:1.9s" d="M880 592 H350 V426"/>
+        <text class="edge-lab fade" style="--d:1.9s" x="615" y="578" text-anchor="middle" fill="#ffc857">interval data — what was done · what happened · what changed</text>
+        <text class="edge-lab fade" style="--d:2s" x="615" y="612" text-anchor="middle" fill="rgba(219,233,251,.4)">every check-in writes back to the record</text>
+
+        <!-- context → the brief (interval end) -->
+        <path class="draw arc" style="--d:2.05s" pathLength="1" stroke-dasharray="1" d="M420 300 C600 140, 950 120, 1216 220" marker-end="url(#m-amber)"/>
+        <path class="flow amber" style="--df:2.3s" d="M420 300 C600 140, 950 120, 1216 220"/>
+        <text class="edge-lab fade" style="--d:2.3s" x="786" y="146" text-anchor="middle" fill="#ffc857" opacity=".85">when the interval ends, the record compiles</text>
+
+        <!-- ============ NODES ============ -->
+
+        <!-- inputs -->
+        <g class="node minor" style="--d:.1s">
+          <title>Visit transcript, captured by ElevenLabs Scribe</title>
+          <rect x="30" y="272" width="170" height="52" rx="5"/>
+          <text class="lab lab-sm" x="115" y="294" text-anchor="middle">CONSULTANT</text>
+          <text class="note" x="115" y="310" text-anchor="middle">visit transcript · scribe</text>
+          <circle cx="200" cy="272" r="10" fill="#0d2b49" stroke="rgba(219,233,251,.5)" stroke-width="1.2"/>
+          <text class="note" x="200" y="276" text-anchor="middle" fill="#ffc857">∞</text>
+        </g>
+        <g class="node minor" style="--d:.16s">
+          <title>Condition primer for the patient's diagnosis</title>
+          <rect x="30" y="344" width="170" height="52" rx="5"/>
+          <text class="lab lab-sm" x="115" y="366" text-anchor="middle">DISEASE CONTEXT</text>
+          <text class="note" x="115" y="382" text-anchor="middle">condition primer</text>
+        </g>
+        <g class="node minor" style="--d:.22s">
+          <title>Medication reference for prescribed drugs</title>
+          <rect x="30" y="416" width="170" height="52" rx="5"/>
+          <text class="lab lab-sm" x="115" y="438" text-anchor="middle">DRUG</text>
+          <text class="note" x="115" y="454" text-anchor="middle">medication reference</text>
+          <circle cx="200" cy="416" r="10" fill="#0d2b49" stroke="rgba(219,233,251,.5)" stroke-width="1.2"/>
+          <text class="note" x="200" y="420" text-anchor="middle" fill="#ffc857">∞</text>
+        </g>
+
+        <!-- context -->
+        <g class="node" style="--d:.4s">
+          <title>The patient-owned longitudinal record</title>
+          <rect x="260" y="300" width="180" height="120" rx="6"/>
+          <text class="lab lab-lg" x="350" y="352" text-anchor="middle">CONTEXT</text>
+          <text class="note" x="350" y="374" text-anchor="middle">the longitudinal record</text>
+          <text class="note-i" x="350" y="392" text-anchor="middle">patient-owned · portable</text>
+        </g>
+
+        <!-- supabase -->
+        <g class="node minor" style="--d:.5s">
+          <title>Supabase — Postgres, pgvector, row-level security</title>
+          <rect x="265" y="96" width="170" height="56" rx="5"/>
+          <text class="lab lab-sm" x="350" y="119" text-anchor="middle" fill="#63d7b5">SUPABASE</text>
+          <text class="note" x="350" y="136" text-anchor="middle">postgres · pgvector · rls</text>
+        </g>
+
+        <!-- caretaker llm -->
+        <g class="node" style="--d:.8s">
+          <title>Claude reads the record and plans the interval</title>
+          <rect x="560" y="312" width="210" height="96" rx="6"/>
+          <text class="lab lab-md" x="665" y="349" text-anchor="middle">CARETAKER LLM</text>
+          <text class="note" x="665" y="370" text-anchor="middle">claude · anthropic</text>
+          <text class="note-i" x="665" y="388" text-anchor="middle">document, don’t diagnose</text>
+        </g>
+
+        <!-- plan -->
+        <g class="node" style="--d:1s">
+          <title>Extracted commitments and check-in cadence</title>
+          <rect x="820" y="326" width="130" height="68" rx="6"/>
+          <text class="lab lab-md" x="885" y="354" text-anchor="middle">PLAN</text>
+          <text class="note" x="885" y="376" text-anchor="middle" style="font-size:9px">commitments · cadence</text>
+        </g>
+
+        <!-- basic questions -->
+        <g class="node" style="--d:1.15s">
+          <title>Voice check-in call, ElevenLabs agent</title>
+          <rect x="990" y="312" width="200" height="96" rx="6"/>
+          <text class="lab lab-md" x="1090" y="345" text-anchor="middle">BASIC QUESTIONS</text>
+          <text class="note" x="1090" y="364" text-anchor="middle">voice call · elevenlabs</text>
+          <text class="note-i" x="1090" y="382" text-anchor="middle">did it help? did the test happen?</text>
+          <text class="note-i" x="1090" y="396" text-anchor="middle">did the symptom return?</text>
+        </g>
+
+        <!-- triage diamond -->
+        <g class="node minor" style="--d:1.3s">
+          <title>Triage: any red-flag answers?</title>
+          <path class="shape" d="M1090 450 L1128 488 L1090 526 L1052 488 Z"/>
+          <text class="note" x="1090" y="484" text-anchor="middle" style="font-size:9px">RED</text>
+          <text class="note" x="1090" y="497" text-anchor="middle" style="font-size:9px">FLAG?</text>
+        </g>
+
+        <!-- monitor -->
+        <g class="node" style="--d:1.5s">
+          <title>Ongoing monitoring across the interval</title>
+          <rect x="880" y="560" width="170" height="64" rx="6"/>
+          <text class="lab lab-md" x="965" y="587" text-anchor="middle">MONITOR</text>
+          <text class="note" x="965" y="606" text-anchor="middle" style="font-size:9px">symptoms · adherence · tests</text>
+        </g>
+
+        <!-- the brief -->
+        <text class="edge-lab fade" style="--d:2.4s" x="1322" y="160" text-anchor="middle" fill="rgba(255,200,87,.6)">SCHEDULED PATH</text>
+        <g class="node hero" style="--d:2.45s">
+          <title>The next-visit brief — the hero artifact</title>
+          <rect x="1222" y="170" width="200" height="110" rx="6"/>
+          <text class="lab lab-lg" x="1322" y="212" text-anchor="middle">THE BRIEF</text>
+          <text class="note" x="1322" y="236" text-anchor="middle" style="font-size:9px">agreed · done · happened · changed</text>
+          <text class="note-i" x="1322" y="256" text-anchor="middle">visit 2 starts at minute two</text>
+        </g>
+
+        <!-- early return -->
+        <text class="edge-lab fade" style="--d:1.7s" x="1322" y="606" text-anchor="middle" fill="rgba(255,107,94,.6)">ESCALATED PATH</text>
+        <g class="node alarm" style="--d:1.75s">
+          <title>Red flag detected — return to the clinic early</title>
+          <rect x="1222" y="620" width="200" height="84" rx="6"/>
+          <text class="lab lab-md" x="1322" y="655" text-anchor="middle">2ND CONSULTATION</text>
+          <text class="note" x="1322" y="676" text-anchor="middle">early return — red flag</text>
+        </g>
+
+        <!-- figure caption -->
+        <text class="fig fade" style="--d:2.6s" x="40" y="844">FIG. 01 — CARETAKER LOOP · ONE INTERVAL, CLOSED</text>
+      </svg>
+    </div>
+  </main>
+
+  <section class="legend" aria-label="Legend">
+    <div class="item">
+      <svg width="46" height="10"><line x1="0" y1="5" x2="38" y2="5" stroke="rgba(219,233,251,.85)" stroke-width="1.5"/><path d="M38 1 L46 5 L38 9 Z" fill="rgba(219,233,251,.85)"/></svg>
+      data flow — capture → plan → call
+    </div>
+    <div class="item">
+      <svg width="46" height="10"><line x1="4" y1="5" x2="42" y2="5" stroke="#63d7b5" stroke-width="1.4" stroke-dasharray="3 5"/><path d="M4 1 L0 5 L4 9" fill="none" stroke="#63d7b5"/><path d="M42 1 L46 5 L42 9" fill="none" stroke="#63d7b5"/></svg>
+      storage sync — supabase, patient-owned
+    </div>
+    <div class="item">
+      <svg width="46" height="10"><line x1="0" y1="5" x2="38" y2="5" stroke="#ffc857" stroke-width="1.8"/><path d="M38 1 L46 5 L38 9 Z" fill="#ffc857"/></svg>
+      the loop — interval data writes back
+    </div>
+    <div class="item">
+      <svg width="46" height="10"><line x1="0" y1="5" x2="38" y2="5" stroke="rgba(255,200,87,.6)" stroke-width="1.5" stroke-dasharray="7 5"/><path d="M38 1 L46 5 L38 9 Z" fill="rgba(255,200,87,.8)"/></svg>
+      interval end — the record compiles the brief
+    </div>
+    <div class="item">
+      <svg width="46" height="10"><line x1="0" y1="5" x2="38" y2="5" stroke="#ff6b5e" stroke-width="1.6"/><path d="M38 1 L46 5 L38 9 Z" fill="#ff6b5e"/></svg>
+      red flag — escalated early return
+    </div>
+  </section>
+
+  <footer class="titleblock" aria-label="Title block">
+    <div class="cell"><span class="k">Project</span><span class="v">CADENCE — patient-side care loop</span></div>
+    <div class="cell"><span class="k">Drawing</span><span class="v">the caretaker loop</span></div>
+    <div class="cell"><span class="k">Fig</span><span class="v">01</span></div>
+    <div class="cell"><span class="k">Sheet</span><span class="v">1 of 1</span></div>
+    <div class="cell"><span class="k">Date</span><span class="v">26 JUL 2026</span></div>
+    <div class="cell"><span class="k">Scale</span><span class="v">weeks → <span class="hl">3 min</span></span></div>
+    <div class="cell"><span class="k">Drawn</span><span class="v">ballpoint on paper</span></div>
+    <div class="cell"><span class="k">Plate</span><span class="v"><a href="https://deerflow.tech" target="_blank" rel="noopener">DEERFLOW ✦</a></span></div>
+  </footer>
+
+</div>
+</body>
+</html>
