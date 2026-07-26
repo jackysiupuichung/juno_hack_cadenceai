@@ -1,8 +1,6 @@
 "use client"
 
-import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import {
   Mic,
   FileText,
@@ -12,7 +10,6 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react"
-import { useApp } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
 import { BriefMini } from "@/components/brief-mini"
@@ -55,13 +52,9 @@ const TRUST_POINTS = [
 ]
 
 export default function LandingPage() {
-  const router = useRouter()
-  const { data, hydrated } = useApp()
-
-  React.useEffect(() => {
-    if (hydrated && data.profile && data.consent) router.replace("/home")
-  }, [hydrated, data.profile, data.consent, router])
-
+  // No auto-redirect for returning users: the landing is the pitch, and both
+  // CTAs route through onboarding, which already forwards a finished profile
+  // straight to /home. Bouncing here made the page unviewable after setup.
   return (
     <div className="min-h-dvh w-full bg-background">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
