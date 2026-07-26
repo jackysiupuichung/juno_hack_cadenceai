@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
 import { Wordmark } from "@/components/logo"
+import { RainCurtain } from "@/components/rain-curtain"
 
 const LOOP_STEPS = [
   {
@@ -25,7 +26,7 @@ const LOOP_STEPS = [
   {
     icon: FileText,
     title: "Understand it instantly",
-    body: "A clear, plain-language summary of what was said, what it means, and what you agreed to do next.",
+    body: "A clear, plain-language summary: what was said, what it means, what you agreed to do next.",
   },
   {
     icon: MessageCircleHeart,
@@ -43,7 +44,7 @@ const TRUST_POINTS = [
   {
     icon: ShieldCheck,
     title: "Yours, not the clinic's",
-    body: "Your record lives with you and travels with you, to a specialist, a new city, or a different doctor entirely.",
+    body: "Your record lives with you and travels with you: to a specialist, a new city, a different doctor entirely.",
   },
   {
     icon: Sparkles,
@@ -96,7 +97,13 @@ export default function LandingPage() {
       </header>
 
       {/* Hero */}
-      <section className="relative mx-auto flex w-full max-w-5xl flex-col items-center px-6 pb-20 pt-14 text-center sm:pb-28 sm:pt-20">
+      {/* isolate: the rain canvas sits on -z-10, and without a local stacking
+          context it would paint behind the page's own background. */}
+      <section className="relative isolate mx-auto flex w-full max-w-5xl flex-col items-center px-6 pb-20 pt-14 text-center sm:pb-28 sm:pt-20">
+        {/* Weather, not subject: a faint interactive rain curtain hangs over
+            the hero. Sway it with the pointer; a fast swipe sheds drops. */}
+        <RainCurtain className="absolute inset-0 -z-10 size-full" />
+
         <div
           className="glass-subtle mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground"
           style={{ animation: "fade-up 500ms var(--ease-out) both" }}
@@ -173,8 +180,8 @@ export default function LandingPage() {
             One loop, every visit
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground">
-            One visit at a time, building a record of your care you can
-            finally understand and rely on.
+            The same four steps, every time, until the record is something you
+            can actually stand on.
           </p>
         </Reveal>
 
