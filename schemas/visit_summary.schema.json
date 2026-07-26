@@ -23,7 +23,7 @@
     },
     "doctor_diagnosis": {
       "type": "string",
-      "description": "The diagnosis as the doctor stated it. \"\" if none given."
+      "description": "The diagnosis as the doctor stated it, plus a short plain-language explanation grounded only in facts already present elsewhere in the transcript. \"\" if none given."
     },
     "doctor_advice": {
       "type": "string",

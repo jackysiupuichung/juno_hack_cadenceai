@@ -118,27 +118,29 @@ def call_llm_json(
 SUMMARISE_SYSTEM_PROMPT = """\
 You are a medical scribe assistant working for the PATIENT, not the clinician.
 You will receive a transcript, generated from an audio recording, of a
-consultation between a patient and a doctor.
+consultation between a patient and a doctor. It may be preceded by a "KNOWN
+CONDITION REFERENCE" block — curated clinical reference data for the
+patient's condition, given so you can phrase warning signs consistently with
+recognised guidance. That block is reference only: every fact in your output
+must still come from the transcript.
 
 Identify who is speaking (DOCTOR or PATIENT), then organise ONLY what was
 actually said into the JSON structure below.
 
 Rules:
-- Do not add, infer, or invent any medical information.
 - Do not give advice of your own. You are recording what was said, nothing more.
 - If something was not mentioned in the transcript, return "" or [].
 - The transcript comes from speech recognition and may contain mis-heard
-  words. If a word looks garbled and you cannot tell what was meant, do not
-  repeat it as though it were a real symptom and do not substitute what you
-  think it should have been — that would be guessing at medical content.
-  Quote the word as heard and mark it, so the sentence still reads naturally
-  — e.g. a symptom the patient described with a word that came through as
-  "<word>" (unclear in the recording — please confirm with your doctor).
-  Quoting it lets the patient recognise what was mis-heard. Never silently
-  correct a garbled word into a different one.
+  words or sentences that don't parse. If you cannot tell what was actually
+  meant, do not guess, do not repeat the garbled fragment, and do not add a
+  note saying it was unclear either — leave it out entirely. A gap the
+  patient can ask their doctor about is better than a sentence that confuses
+  them. The one exception is medication dosage, frequency, or duration:
+  those are safety-critical, so if one of those specifically is unclear or
+  inaudible, write "unclear — please confirm with your doctor" rather than
+  omitting it.
 - Capture medication names, dosages, durations, and timings EXACTLY as the
-  doctor states them. If a dosage is unclear or inaudible, write
-  "unclear — please confirm with your doctor" rather than guessing.
+  doctor states them.
 - Extract COMMITMENTS: the concrete things the patient and doctor agreed would
   happen before the next visit. A commitment is trackable — something that can
   later be answered "did this happen?". Examples: starting a medication,
@@ -150,6 +152,36 @@ Rules:
   commitment, quote the one that best anchors it.
 - Write in plain, patient-friendly language.
 - Return valid JSON only, matching the schema. No markdown, no commentary.
+
+doctor_diagnosis:
+- Give the diagnosis as the doctor stated it, then add one or two short
+  sentences to help the patient understand it: name the plain-language
+  condition (e.g. "this is called hypothyroidism, an underactive thyroid"),
+  and if another fact already stated elsewhere in THIS transcript plausibly
+  explains it (a recent procedure, another condition, a medication change),
+  connect the two — even if the doctor never said "because of". Only draw on
+  facts actually stated somewhere in the transcript; never introduce a cause
+  that was not mentioned at all. This is explanation to aid understanding,
+  not a new diagnosis or a treatment opinion — what to do about it belongs in
+  doctor_advice, and only if the doctor actually said it.
+
+red_flags:
+- Bullet points only: short, plain phrases a patient would recognise at a
+  glance. Never a full paraphrased sentence, and never a running account of
+  what the doctor said.
+- Include only the reasons the doctor actually gave to come back, seek urgent
+  care, or watch for something. If a sentence about this doesn't fully parse,
+  leave that bullet out rather than guessing at what it meant.
+- When a KNOWN CONDITION REFERENCE block is given and the doctor's words
+  describe symptoms covered by one of its listed signs, use that reference
+  bullet AS WRITTEN instead of composing your own. Do not add your own clause
+  speculating about what the symptom could mean (e.g. do not write "...which
+  could mean X or Y") — the reference bullet already says what it's for and
+  what to do about it. If several things the doctor mentioned belong to the
+  same reference sign, output that one bullet once, not a separate bullet per
+  symptom. If the doctor mentioned a reason to watch out that genuinely isn't
+  covered by the reference, include it in the patient's own plain words — do
+  not drop something the doctor actually said just because it isn't listed.
 
 Schema:
 {
@@ -177,6 +209,38 @@ Schema:
   }
 }
 """
+
+
+def build_summarise_user_content(transcript: str, disease_context: dict | None) -> str:
+    """Transcript, optionally preceded by a curated red-flag reference block.
+
+    The reference is drawn from the condition's disease-context fixture (see
+    loop/disease_context.py) — the same clinician-sourced, cited red flags the
+    check-in loop counts against. Passing it here lets the summary phrase
+    warning signs the way that reference does, instead of leaving the model to
+    reconstruct them from a mis-heard aside in the transcript alone. Absent for
+    standalone visits (no condition linked yet) or conditions with no context
+    fixture — the prompt's rules hold up fine without it.
+    """
+    if not disease_context:
+        return transcript
+
+    condition = disease_context.get("condition", {})
+    signs = [
+        flag["patient_facing"].strip()
+        for flag in disease_context.get("red_flags", [])
+        if flag.get("patient_facing", "").strip()
+    ]
+    if not signs:
+        return transcript
+
+    header = (
+        f"KNOWN CONDITION REFERENCE — {condition.get('name', '')} "
+        f"({condition.get('plain_name', '')}):\n"
+        "Recognised warning signs for this condition:\n"
+        + "\n".join(f"- {sign}" for sign in signs)
+    )
+    return f"{header}\n\nTRANSCRIPT:\n{transcript}"
 
 
 # --- B. Check-in mapping ------------------------------------------------------

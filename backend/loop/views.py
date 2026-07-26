@@ -41,6 +41,7 @@ from .services import (
     QA_SYSTEM_PROMPT,
     SUMMARISE_SYSTEM_PROMPT,
     LLMJSONError,
+    build_summarise_user_content,
     call_llm_json,
 )
 
@@ -651,9 +652,23 @@ def summarise(request):
     if not transcript:
         return Response({"error": "transcript is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Loaded once, up front, so the summariser can phrase red flags against
+    # the same clinician-sourced reference the plan below uses — rather than
+    # reconstructing them from a mis-heard aside in the transcript alone.
+    # Absent for a standalone visit, or one whose condition has no context
+    # fixture yet; the prompt degrades gracefully without it.
+    disease_context, disease_context_error = None, None
+    if condition and condition.get("disease_context_id"):
+        try:
+            disease_context = load_context(condition["disease_context_id"])
+        except IntervalError as exc:
+            disease_context_error = str(exc)
+
     try:
         summary = call_llm_json(
-            SUMMARISE_SYSTEM_PROMPT, transcript, schema_name="visit_summary"
+            SUMMARISE_SYSTEM_PROMPT,
+            build_summarise_user_content(transcript, disease_context),
+            schema_name="visit_summary",
         )
     except LLMJSONError as exc:
         return Response(
@@ -703,8 +718,11 @@ def summarise(request):
         # re-plan rather than silently running the whole interval without an
         # agenda.
         try:
-            context = load_context(condition.get("disease_context_id"))
-            built = build_plan(summary=summary, context=context, visit_date=visit["date"])
+            if disease_context is None:
+                raise IntervalError(
+                    disease_context_error or "No disease context set for this condition"
+                )
+            built = build_plan(summary=summary, context=disease_context, visit_date=visit["date"])
             plan_row = repo.create_plan(
                 visit["id"], built.data, condition_context=condition.get("disease_context_id") or ""
             )
