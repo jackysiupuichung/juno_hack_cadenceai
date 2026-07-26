@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Reveal } from "@/components/reveal"
 import { Wordmark } from "@/components/logo"
-import { RainCurtain } from "@/components/rain-curtain"
 
 const LOOP_STEPS = [
   {
@@ -97,13 +96,7 @@ export default function LandingPage() {
       </header>
 
       {/* Hero */}
-      {/* isolate: the rain canvas sits on -z-10, and without a local stacking
-          context it would paint behind the page's own background. */}
-      <section className="relative isolate mx-auto flex w-full max-w-5xl flex-col items-center px-6 pb-20 pt-14 text-center sm:pb-28 sm:pt-20">
-        {/* Weather, not subject: a faint interactive rain curtain hangs over
-            the hero. Sway it with the pointer; a fast swipe sheds drops. */}
-        <RainCurtain className="absolute inset-0 -z-10 size-full" />
-
+      <section className="relative mx-auto flex w-full max-w-5xl flex-col items-center px-6 pb-20 pt-14 text-center sm:pb-28 sm:pt-20">
         <div
           className="glass-subtle mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground"
           style={{ animation: "fade-up 500ms var(--ease-out) both" }}
