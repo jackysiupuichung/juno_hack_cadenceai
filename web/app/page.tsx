@@ -89,18 +89,17 @@ export default function LandingPage() {
               className="max-w-3xl text-balance font-[family-name:var(--font-display)] text-4xl font-medium leading-[1.08] tracking-tight text-foreground sm:text-5xl"
               style={{ animation: "fade-up 600ms var(--ease-out) 60ms both" }}
             >
-              A visit isn&apos;t an event.
-              <br />
-              It&apos;s the start of an interval.
+              Your doctor&apos;s appointment doesn&apos;t end when you leave
+              the room.
             </h1>
 
             <p
               className="mt-6 max-w-xl text-pretty text-lg text-muted-foreground"
               style={{ animation: "fade-up 600ms var(--ease-out) 120ms both" }}
             >
-              Cadence captures what your doctor said, follows the plan through
-              the weeks after, and walks you into the next visit already
-              prepared.
+              Cadence turns what was said into something you can actually use.
+              It checks in with you afterward, so nothing gets lost before your
+              next one.
             </p>
 
             <div
@@ -144,8 +143,8 @@ export default function LandingPage() {
             One loop, every visit
           </h2>
           <p className="mt-3 text-pretty text-muted-foreground">
-            The same four steps, every time, until the record is something you
-            can actually stand on.
+            One visit at a time, building a record of your care you can
+            finally understand and rely on.
           </p>
         </Reveal>
 
