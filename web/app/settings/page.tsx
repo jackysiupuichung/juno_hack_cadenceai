@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ShieldCheck, Bell, Trash2, FileText } from "lucide-react"
+import { ShieldCheck, Bell, Trash2, FileText, LogOut } from "lucide-react"
 import { useApp } from "@/lib/store"
 import { formatDate } from "@/lib/dates"
 import { AppShell, Content, ScreenHeader } from "@/components/app-shell"
@@ -22,9 +22,13 @@ import {
 export default function SettingsPage() {
   const router = useRouter()
   const { data, hydrated, setReminders, clearAll } = useApp()
+  // clearAll() (log out, withdraw consent) drops the profile, which would
+  // otherwise trip the guard below and redirect to /onboarding — racing
+  // whatever destination the button that cleared it already chose.
+  const leavingRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || leavingRef.current) return
     if (!data.profile || !data.consent) router.replace("/onboarding")
   }, [hydrated, data.profile, data.consent, router])
 
@@ -125,6 +129,29 @@ export default function SettingsPage() {
         </section>
 
         <section className="flex flex-col gap-3 border-t border-border pt-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+            <LogOut className="size-4" />
+            Log out
+          </h2>
+          <p className="text-sm text-muted-foreground text-pretty">
+            Signs you out of Cadence on this device. Your health record stays
+            safe — you can sign back in any time.
+          </p>
+          <Button
+            variant="outline"
+            className="self-start"
+            onClick={() => {
+              leavingRef.current = true
+              clearAll()
+              router.replace("/")
+            }}
+          >
+            <LogOut className="size-4" />
+            Log out
+          </Button>
+        </section>
+
+        <section className="flex flex-col gap-3 border-t border-border pt-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-destructive">
             <Trash2 className="size-4" />
             Withdraw & erase
@@ -152,6 +179,7 @@ export default function SettingsPage() {
                 <Button
                   variant="destructive"
                   onClick={() => {
+                    leavingRef.current = true
                     clearAll()
                     router.replace("/onboarding")
                   }}
