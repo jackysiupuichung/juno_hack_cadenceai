@@ -11,7 +11,7 @@ export function LoopSchematic() {
     <div className="loop-schematic overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
       <div className="overflow-x-auto">
         <svg
-          className="block h-auto w-full min-w-[1000px]"
+          className="block h-auto w-full min-w-[1000px] lg:min-w-0"
           viewBox="0 0 1440 736"
           role="img"
           aria-label="The caretaker loop: a consultation grounded in NICE and CKS becomes a patient-owned record, a plan, and voice check-ins across the gap between visits — red flags return early, everything else loops back until the brief opens visit two."

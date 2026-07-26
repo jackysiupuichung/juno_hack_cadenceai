@@ -72,7 +72,9 @@ export default function LandingPage() {
 
       {/* Hero. The old orb said "AI product"; the brief thumbnail says what
           this one actually makes, so the artifact takes the orb's place. */}
-      <section className="relative mx-auto w-full max-w-5xl px-6 pb-16 pt-10 sm:pb-24 sm:pt-14">
+      {/* isolate: the glow and rain canvas sit on -z-10, and without a local
+          stacking context they'd paint behind the page background. */}
+      <section className="relative isolate mx-auto w-full max-w-5xl px-6 pb-16 pt-10 sm:pb-24 sm:pt-14">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 -top-24 -z-10 h-[440px] bg-[radial-gradient(60%_55%_at_72%_10%,color-mix(in_oklab,var(--primary)_7%,transparent),transparent)]"

@@ -14,10 +14,16 @@ export function AppShell({
   className?: string
 }) {
   return (
-    <div className="min-h-dvh w-full bg-background">
+    <div className="min-h-dvh w-full bg-background sm:bg-muted/60 sm:px-6 sm:py-6 print:bg-background print:p-0">
+      {/* On a phone the column is the screen. From sm up it becomes a framed
+          device: the column itself scrolls, so the sticky header and bottom
+          bar pin to the frame's edges instead of the browser's. The demo
+          runs on a laptop; an app that looks like a phone should get one. */}
       <div
         className={cn(
           "mx-auto flex min-h-dvh w-full max-w-md flex-col bg-background",
+          "sm:h-[calc(100dvh-3rem)] sm:min-h-0 sm:overflow-y-auto sm:overscroll-contain sm:rounded-4xl sm:border sm:border-border sm:shadow-xl",
+          "print:h-auto print:min-h-0 print:max-w-none print:overflow-visible print:rounded-none print:border-none print:shadow-none",
           className,
         )}
       >
