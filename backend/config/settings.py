@@ -87,6 +87,10 @@ CORS_ALLOWED_ORIGINS = [
 # a dashboard env var that, unset, turns every request into a DisallowedHost
 # 400 or a silently dropped CORS call.
 if os.environ.get("VERCEL"):
+    # A public URL is no place for the debug page — it prints the whole
+    # settings table to anyone who triggers an error. An explicit
+    # DJANGO_DEBUG=true still wins for a deliberate debugging session.
+    DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
     ALLOWED_HOSTS.append(".vercel.app")
     CORS_ALLOWED_ORIGIN_REGEXES = [r"^https://.*\.vercel\.app$"]
     CSRF_TRUSTED_ORIGINS = ["https://*.vercel.app"]
