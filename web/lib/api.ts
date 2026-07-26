@@ -12,8 +12,16 @@
  * and every clinical judgement, every prompt and every schema stays in Python.
  */
 
+// The fallback derives the host from the address bar rather than hardcoding
+// localhost: a browser pointed at 127.0.0.1:3000 or a LAN IP would otherwise
+// send every request to a literal "localhost" the backend's CORS allowlist
+// rejects — and the store swallows that failure, so the app looks fine and
+// only the server-fed sections silently vanish.
 const BASE =
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "http://localhost:8000"
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ??
+  (typeof window !== "undefined"
+    ? `http://${window.location.hostname}:8000`
+    : "http://localhost:8000")
 
 /** A failure the UI can show a patient without leaking a stack trace. */
 export class ApiError extends Error {

@@ -20,6 +20,10 @@ export const metadata: Metadata = {
   description:
     "Record, transcribe and understand your doctor appointments with clear, patient-friendly summaries.",
   generator: "v0.app",
+  // The icons exist in public/ but were never linked, so every page load
+  // fell back to requesting /favicon.ico, which nothing serves — a 404 on
+  // every console.
+  icons: { icon: "/icon.svg", apple: "/apple-icon.png" },
 }
 
 export const viewport: Viewport = {
